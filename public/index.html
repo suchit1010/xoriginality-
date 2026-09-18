@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>X Originality Checker - Algorithm Pre-Publish Verifier</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #080a0f;
+      --bg-card: rgba(16, 20, 29, 0.75);
+      --bg-card-hover: rgba(22, 28, 41, 0.85);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-focus: rgba(29, 155, 240, 0.5);
+      --primary: #1d9bf0;
+      --primary-glow: rgba(29, 155, 240, 0.25);
+      --text-main: #f3f5f9;
+      --text-muted: #8b98a5;
+      --text-sub: #536471;
+      --success: #00ba7c;
+      --success-glow: rgba(0, 186, 124, 0.25);
+      --warning: #ffd400;
+      --warning-glow: rgba(255, 212, 0, 0.2);
+      --danger: #f4212e;
+      --danger-glow: rgba(244, 33, 46, 0.25);
+      --cyan: #00e5ff;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(29, 155, 240, 0.12) 0%, transparent 40%),
+        radial-gradient(circle at 85% 85%, rgba(0, 186, 124, 0.08) 0%, transparent 45%);
+      color: var(--text-main);
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+    }
+
+    /* Top Navigation Bar */
+    header {
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(8, 10, 15, 0.8);
+      backdrop-filter: blur(16px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 0.85rem 1.5rem;
+    }
+
+    .nav-container {
+      max-width: 1240px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      text-decoration: none;
+      color: var(--text-main);
+    }
+
+    .brand-icon {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, #1d9bf0, #00ba7c);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 1.25rem;
+      box-shadow: 0 0 20px var(--primary-glow);
+    }
+
+    .brand-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-subtitle {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: block;
+    }
+
+    .badge-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      background: rgba(0, 186, 124, 0.1);
+      border: 1px solid rgba(0, 186, 124, 0.25);
+      color: var(--success);
+      padding: 0.35rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: var(--success);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--success);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+
+    /* Main Container */
+    main {
+      flex: 1;
+      max-width: 1240px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 4rem;
+    }
+
+    .hero-banner {
+      margin-bottom: 2rem;
+      text-align: center;
+    }
+
+    .hero-title {
+      font-size: 2.1rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #ffffff 40%, #8b98a5 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.5rem;
+    }
+
+    .hero-desc {
+      color: var(--text-muted);
+      font-size: 1.02rem;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    /* 2-Column Dashboard Grid */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.75rem;
+      align-items: start;
+    }
+
+    @media (max-width: 1024px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Base Card Container */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 20px;
+      padding: 1.75rem;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.25rem;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .card-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* Composer Area */
+    .composer-wrapper {
+      position: relative;
+    }
+
+    .tweet-textarea {
+      width: 100%;
+      min-height: 180px;
+      background: rgba(10, 13, 19, 0.95);
+      border: 1.5px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 1.1rem;
+      color: var(--text-main);
+      font-family: inherit;
+      font-size: 1.05rem;
+      resize: vertical;
+      outline: none;
+      transition: all 0.2s ease;
+      line-height: 1.6;
+    }
+
+    .tweet-textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-glow);
+    }
+
+    .tweet-textarea::placeholder {
+      color: var(--text-sub);
+    }
+
+    .composer-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 0.75rem;
+    }
+
+    .char-count-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .note-badge {
+      background: rgba(29, 155, 240, 0.15);
+      color: var(--primary);
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    /* Preset Buttons */
+    .presets-label {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin: 1.25rem 0 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .preset-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .chip-btn {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      padding: 0.4rem 0.8rem;
+      border-radius: 9999px;
+      font-size: 0.82rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .chip-btn:hover {
+      background: rgba(29, 155, 240, 0.12);
+      border-color: rgba(29, 155, 240, 0.4);
+      color: var(--text-main);
+      transform: translateY(-1px);
+    }
+
+    /* Action Buttons */
+    .action-row {
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    .btn-verify {
+      flex: 1;
+      background: linear-gradient(135deg, #1d9bf0, #1a8cd8);
+      color: #ffffff;
+      border: none;
+      padding: 0.95rem 1.5rem;
+      border-radius: 12px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      box-shadow: 0 4px 18px var(--primary-glow);
+      transition: all 0.2s ease;
+    }
+
+    .btn-verify:hover:not(:disabled) {
+      background: linear-gradient(135deg, #25a3f5, #1d9bf0);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(29, 155, 240, 0.4);
+    }
+
+    .btn-verify:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-clear {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      padding: 0.95rem 1.25rem;
+      border-radius: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-clear:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text-main);
+    }
+
+    /* Results Dashboard Panel */
+    .results-container {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3.5rem 1.5rem;
+      color: var(--text-sub);
+    }
+
+    .empty-icon {
+      font-size: 2.75rem;
+      margin-bottom: 0.75rem;
+      opacity: 0.7;
+    }
+
+    /* Navigation Tabs inside Results */
+    .result-tabs {
+      display: flex;
+      gap: 0.45rem;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 0.35rem;
+      border-radius: 12px;
+      border: 1px solid var(--border-subtle);
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 0.5rem 0.75rem;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+      text-align: center;
+    }
+
+    .tab-btn:hover {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .tab-btn.active {
+      background: rgba(29, 155, 240, 0.15);
+      color: var(--primary);
+      border: 1px solid rgba(29, 155, 240, 0.3);
+    }
+
+    /* Score Meter Banner */
+    .score-banner {
+      background: rgba(10, 13, 20, 0.9);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 1.35rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .score-banner::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: var(--primary);
+      transition: background 0.3s;
+    }
+
+    .score-banner.state-original::before { background: var(--success); }
+    .score-banner.state-paraphrased::before { background: var(--warning); }
+    .score-banner.state-copied::before { background: var(--danger); }
+
+    .score-details {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .score-tag {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+
+    .verdict-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 1.25rem;
+      font-weight: 800;
+    }
+
+    .state-original .verdict-badge { color: var(--success); }
+    .state-paraphrased .verdict-badge { color: var(--warning); }
+    .state-copied .verdict-badge { color: var(--danger); }
+
+    .score-gauge-box {
+      text-align: right;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+
+    .score-number {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 2.75rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .state-original .score-number { color: var(--success); }
+    .state-paraphrased .score-number { color: var(--warning); }
+    .state-copied .score-number { color: var(--danger); }
+
+    .score-out-of {
+      font-size: 0.8rem;
+      color: var(--text-sub);
+    }
+
+    /* Core Algorithm Reasoning Callout */
+    .reasoning-card {
+      background: linear-gradient(135deg, rgba(29, 155, 240, 0.08), rgba(0, 186, 124, 0.04));
+      border: 1px solid rgba(29, 155, 240, 0.25);
+      border-radius: 14px;
+      padding: 1.15rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .reasoning-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--primary);
+    }
+
+    .reasoning-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    .algo-multiplier-badge {
+      background: rgba(29, 155, 240, 0.15);
+      border: 1px solid rgba(29, 155, 240, 0.35);
+      color: var(--text-main);
+      padding: 0.2rem 0.6rem;
+      border-radius: 9999px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .reasoning-body {
+      font-size: 0.95rem;
+      color: var(--text-main);
+      line-height: 1.5;
+    }
+
+    /* Inner Card Headers */
+    .section-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.85rem;
+    }
+
+    .section-heading {
+      font-size: 0.92rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--text-main);
+    }
+
+    .section-tag {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.05);
+      padding: 0.15rem 0.55rem;
+      border-radius: 6px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* -------------------------------------------------------------
+       CRITERIA RUBRIC GRID (Twitter/X Recommendation Algorithm)
+    -------------------------------------------------------------- */
+    .criteria-section {
+      background: rgba(10, 13, 20, 0.8);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 1.25rem;
+    }
+
+    .criteria-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    @media (max-width: 640px) {
+      .criteria-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .criterion-item {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      transition: all 0.2s ease;
+    }
+
+    .criterion-item:hover {
+      border-color: rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .criterion-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+
+    .criterion-name {
+      font-size: 0.86rem;
+      font-weight: 700;
+      color: var(--text-main);
+      display: block;
+    }
+
+    .criterion-weight {
+      font-size: 0.7rem;
+      color: var(--text-sub);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .criterion-status-pill {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 0.15rem 0.5rem;
+      border-radius: 9999px;
+      white-space: nowrap;
+    }
+
+    .status-pass {
+      background: rgba(0, 186, 124, 0.15);
+      color: var(--success);
+      border: 1px solid rgba(0, 186, 124, 0.3);
+    }
+
+    .status-warn {
+      background: rgba(255, 212, 0, 0.15);
+      color: var(--warning);
+      border: 1px solid rgba(255, 212, 0, 0.3);
+    }
+
+    .status-flag {
+      background: rgba(244, 33, 46, 0.15);
+      color: var(--danger);
+      border: 1px solid rgba(244, 33, 46, 0.3);
+    }
+
+    .status-skip {
+      background: rgba(29, 155, 240, 0.15);
+      color: var(--primary);
+      border: 1px solid rgba(29, 155, 240, 0.3);
+    }
+
+    .meter-bar-track {
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 9999px;
+      overflow: hidden;
+      margin: 0.2rem 0;
+    }
+
+    .meter-bar-fill {
+      height: 100%;
+      border-radius: 9999px;
+      transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .bar-high { background: var(--success); }
+    .bar-mid { background: var(--warning); }
+    .bar-low { background: var(--danger); }
+    .bar-boost { background: linear-gradient(90deg, #1d9bf0, #00ba7c); }
+
+    .criterion-score-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.78rem;
+    }
+
+    .criterion-score-val {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-main);
+    }
+
+    .criterion-impact {
+      color: var(--text-muted);
+      font-size: 0.74rem;
+      text-align: right;
+    }
+
+    .criterion-desc {
+      font-size: 0.77rem;
+      color: var(--text-sub);
+      line-height: 1.35;
+      margin-top: 0.2rem;
+    }
+
+    /* -------------------------------------------------------------
+       THINKING PROCESS & CASCADE EXECUTION TRACE
+    -------------------------------------------------------------- */
+    .thinking-section {
+      background: rgba(10, 13, 20, 0.8);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 1.25rem;
+    }
+
+    .thinking-timeline {
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      margin-top: 0.75rem;
+    }
+
+    .timeline-step {
+      display: flex;
+      gap: 1rem;
+      position: relative;
+      padding-bottom: 1.25rem;
+    }
+
+    .timeline-step:last-child {
+      padding-bottom: 0;
+    }
+
+    .step-indicator {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 24px;
+      flex-shrink: 0;
+    }
+
+    .step-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      margin-top: 3px;
+      background: var(--text-sub);
+      border: 2px solid var(--bg-dark);
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
+      transition: all 0.2s;
+    }
+
+    .step-pass .step-dot {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success-glow);
+    }
+
+    .step-warn .step-dot {
+      background: var(--warning);
+      box-shadow: 0 0 8px var(--warning-glow);
+    }
+
+    .step-flag .step-dot {
+      background: var(--danger);
+      box-shadow: 0 0 8px var(--danger-glow);
+    }
+
+    .step-skip .step-dot {
+      background: var(--primary);
+      box-shadow: 0 0 8px var(--primary-glow);
+    }
+
+    .step-line {
+      width: 2px;
+      flex: 1;
+      background: rgba(255, 255, 255, 0.08);
+      margin-top: 4px;
+    }
+
+    .timeline-step:last-child .step-line {
+      display: none;
+    }
+
+    .step-content {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+      padding: 0.85rem 1rem;
+      transition: all 0.2s;
+    }
+
+    .step-content:hover {
+      background: rgba(255, 255, 255, 0.035);
+      border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    .step-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 0.35rem;
+      gap: 0.5rem;
+    }
+
+    .step-stage {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 700;
+      color: var(--primary);
+      display: block;
+    }
+
+    .step-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .step-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .step-latency {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-sub);
+    }
+
+    .step-detail {
+      font-size: 0.83rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    /* Web Match Card */
+    .match-card {
+      background: rgba(10, 13, 20, 0.8);
+      border: 1px solid var(--border-subtle);
+      border-radius: 14px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .match-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .similarity-pill {
+      background: rgba(244, 33, 46, 0.15);
+      color: #ff5252;
+      border: 1px solid rgba(244, 33, 46, 0.3);
+      padding: 0.2rem 0.6rem;
+      border-radius: 9999px;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      font-size: 0.78rem;
+    }
+
+    .match-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .match-url {
+      color: var(--primary);
+      text-decoration: none;
+      font-size: 0.82rem;
+      word-break: break-all;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .match-url:hover {
+      text-decoration: underline;
+    }
+
+    .match-snippet {
+      background: rgba(255, 255, 255, 0.02);
+      border-left: 2px solid var(--primary);
+      padding: 0.75rem 0.9rem;
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      border-radius: 0 8px 8px 0;
+      font-style: italic;
+    }
+
+    /* Footer Metadata */
+    .method-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      padding: 0.35rem 0.75rem;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* History Feed */
+    .history-section {
+      margin-top: 2.5rem;
+    }
+
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    .history-item {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.15s ease;
+      cursor: pointer;
+    }
+
+    .history-item:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateX(4px);
+    }
+
+    .history-text {
+      font-size: 0.92rem;
+      color: var(--text-main);
+      max-width: 70%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .history-badge {
+      font-size: 0.8rem;
+      font-weight: 700;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Spinner */
+    .spinner {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border: 2.5px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 0.8s ease-in-out infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Keyboard Shortcut Hint */
+    .kbd-hint {
+      font-size: 0.75rem;
+      color: var(--text-sub);
+      text-align: center;
+      margin-top: 0.5rem;
+    }
+
+    kbd {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+      padding: 0.1rem 0.35rem;
+      font-family: inherit;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <header>
+    <div class="nav-container">
+      <a href="/" class="brand">
+        <div class="brand-icon">X</div>
+        <div>
+          <span class="brand-title">X Originality Guard</span>
+          <span class="brand-subtitle">Algorithm Pre-Publish Verifier & Thinking Engine</span>
+        </div>
+      </a>
+      <div class="badge-status">
+        <div class="pulse-dot"></div>
+        <span>DuckDuckGo & Gemini Cascade: Active</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main>
+    <div class="hero-banner">
+      <h1 class="hero-title">Audit Tweet Originality Before Posting</h1>
+      <p class="hero-desc">
+        Inspect how X's recommendation engine evaluates your draft. Explore the step-by-step thinking trace,
+        simulated search queries, and algorithmic scoring criteria.
+      </p>
+    </div>
+
+    <div class="dashboard-grid">
+      <!-- Left Column: Tweet Composer -->
+      <section class="card" aria-label="Draft Tweet Composer">
+        <div class="card-header">
+          <h2 class="card-title">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+            </svg>
+            Draft Tweet Composer
+          </h2>
+        </div>
+
+        <div class="composer-wrapper">
+          <textarea
+            id="tweetInput"
+            class="tweet-textarea"
+            placeholder="Type or paste your tweet draft here... (e.g., tech announcement, opinion, quote, or analysis)"
+          ></textarea>
+
+          <div class="composer-meta">
+            <div class="char-count-pill">
+              <span id="charCount">0</span> chars
+              <span id="noteBadge" class="note-badge" style="display: none;">Note Tweet (Long-form)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="presets-label">Quick Test Scenarios:</div>
+        <div class="preset-chips">
+          <button class="chip-btn" id="btnCopiedQuote">🎭 Copied Shakespeare</button>
+          <button class="chip-btn" id="btnMarketingClaim">📈 Marketing Claim</button>
+          <button class="chip-btn" id="btnTechOriginal">🚀 Original Tech Post</button>
+          <button class="chip-btn" id="btnGreeting">☕ Morning Greeting</button>
+        </div>
+
+        <div class="action-row">
+          <button id="btnVerify" class="btn-verify">
+            <span id="btnIcon">⚡</span>
+            <span id="btnText">Verify Originality</span>
+          </button>
+          <button id="btnClear" class="btn-clear">Clear</button>
+        </div>
+        <div class="kbd-hint">Press <kbd>Ctrl</kbd> + <kbd>Enter</kbd> to verify</div>
+      </section>
+
+      <!-- Right Column: Results & X Algorithm Impact -->
+      <section class="card" id="resultsSection" aria-label="Originality & Algorithm Analysis">
+        <div class="card-header">
+          <h2 class="card-title">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            Algorithm Audit & Thinking Trace
+          </h2>
+        </div>
+
+        <!-- Initial Placeholder State -->
+        <div id="emptyState" class="empty-state">
+          <div class="empty-icon">🔍</div>
+          <p><strong>Ready to Audit</strong></p>
+          <p style="font-size: 0.9rem; margin-top: 0.35rem;">Enter a draft or select a quick scenario above to see step-by-step thinking and evaluation criteria.</p>
+        </div>
+
+        <!-- Populated Results Container -->
+        <div id="resultsContent" class="results-container" style="display: none;">
+
+          <!-- Section Switcher Tabs -->
+          <div class="result-tabs" role="tablist">
+            <button class="tab-btn active" data-tab="all">All Insights</button>
+            <button class="tab-btn" data-tab="criteria">📊 Evaluation Criteria</button>
+            <button class="tab-btn" data-tab="thinking">🧠 Thinking Process</button>
+            <button class="tab-btn" data-tab="match">🌐 Web Match</button>
+          </div>
+
+          <!-- Score Banner -->
+          <div id="scoreBanner" class="score-banner state-original">
+            <div class="score-details">
+              <span class="score-tag">Algorithm Verdict</span>
+              <div id="verdictBadge" class="verdict-badge">ORIGINAL</div>
+              <div id="safePill" style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin-top: 0.2rem;">
+                ✅ Safe to Publish
+              </div>
+            </div>
+
+            <div class="score-gauge-box">
+              <div id="scoreNumber" class="score-number">100</div>
+              <div class="score-out-of">out of 100</div>
+            </div>
+          </div>
+
+          <!-- Core Algorithm Reasoning & Reach Forecast Card -->
+          <div class="reasoning-card" id="reasoningCard">
+            <div class="reasoning-header">
+              <div class="reasoning-title-wrap">
+                <span>💡</span>
+                <span>Algorithm Reasoning</span>
+              </div>
+              <span id="algoMultiplierBadge" class="algo-multiplier-badge">+1.8x For You Boost</span>
+            </div>
+            <div id="reasoningText" class="reasoning-body">
+              Original phrasing and claims with negligible web overlap. Optimal for X recommendation algorithm reach.
+            </div>
+          </div>
+
+          <!-- Twitter/X Algorithm Criteria Rubric -->
+          <div id="criteriaSection" class="criteria-section">
+            <div class="section-title-row">
+              <div class="section-heading">
+                <span>📊</span>
+                <span>Evaluation Criteria (Twitter/X Algorithm)</span>
+              </div>
+              <span class="section-tag">Weighted Rubric</span>
+            </div>
+
+            <div class="criteria-grid">
+              <!-- Criterion 1: Lexical Uniqueness -->
+              <div class="criterion-item">
+                <div class="criterion-top">
+                  <div>
+                    <span class="criterion-name">Lexical Uniqueness</span>
+                    <span class="criterion-weight">35% weight</span>
+                  </div>
+                  <span id="crit1Status" class="criterion-status-pill status-pass">High Uniqueness</span>
+                </div>
+                <div class="meter-bar-track">
+                  <div id="crit1Bar" class="meter-bar-fill bar-high" style="width: 100%;"></div>
+                </div>
+                <div class="criterion-score-row">
+                  <span class="criterion-score-val"><strong id="crit1Score">100</strong>/100</span>
+                  <span id="crit1Impact" class="criterion-impact">Passes duplicate filter</span>
+                </div>
+                <p id="crit1Desc" class="criterion-desc">Verbatim phrasing overlap against the indexed web corpus.</p>
+              </div>
+
+              <!-- Criterion 2: Claim Substantiveness -->
+              <div class="criterion-item">
+                <div class="criterion-top">
+                  <div>
+                    <span class="criterion-name">Claim Substantiveness</span>
+                    <span class="criterion-weight">25% weight</span>
+                  </div>
+                  <span id="crit2Status" class="criterion-status-pill status-pass">High Depth</span>
+                </div>
+                <div class="meter-bar-track">
+                  <div id="crit2Bar" class="meter-bar-fill bar-high" style="width: 85%;"></div>
+                </div>
+                <div class="criterion-score-row">
+                  <span class="criterion-score-val"><strong id="crit2Score">85</strong>/100</span>
+                  <span id="crit2Impact" class="criterion-impact">High recommendation weighting</span>
+                </div>
+                <p id="crit2Desc" class="criterion-desc">Presence of concrete claims, technical assertions, or structured arguments.</p>
+              </div>
+
+              <!-- Criterion 3: Attribution Integrity -->
+              <div class="criterion-item">
+                <div class="criterion-top">
+                  <div>
+                    <span class="criterion-name">Attribution Integrity</span>
+                    <span class="criterion-weight">20% weight</span>
+                  </div>
+                  <span id="crit3Status" class="criterion-status-pill status-pass">Original IP</span>
+                </div>
+                <div class="meter-bar-track">
+                  <div id="crit3Bar" class="meter-bar-fill bar-high" style="width: 95%;"></div>
+                </div>
+                <div class="criterion-score-row">
+                  <span class="criterion-score-val"><strong id="crit3Score">95</strong>/100</span>
+                  <span id="crit3Impact" class="criterion-impact">Full creator credit</span>
+                </div>
+                <p id="crit3Desc" class="criterion-desc">Legitimate quotation and attribution vs unattributed text extraction.</p>
+              </div>
+
+              <!-- Criterion 4: X Reach Multiplier -->
+              <div class="criterion-item">
+                <div class="criterion-top">
+                  <div>
+                    <span class="criterion-name">Reach Multiplier</span>
+                    <span class="criterion-weight">20% weight</span>
+                  </div>
+                  <span id="crit4Status" class="criterion-status-pill status-pass">🚀 +1.8x</span>
+                </div>
+                <div class="meter-bar-track">
+                  <div id="crit4Bar" class="meter-bar-fill bar-boost" style="width: 95%;"></div>
+                </div>
+                <div class="criterion-score-row">
+                  <span class="criterion-score-val"><strong id="crit4Score">95</strong>/100</span>
+                  <span id="crit4Impact" class="criterion-impact">Out-of-network eligible</span>
+                </div>
+                <p id="crit4Desc" class="criterion-desc">Predicted distribution weight in open-source recommendation graph.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Evaluation Thinking Process & Cascade Trace -->
+          <div id="thinkingSection" class="thinking-section">
+            <div class="section-title-row">
+              <div class="section-heading">
+                <span>🧠</span>
+                <span>Evaluation Thinking Process</span>
+              </div>
+              <span class="section-tag">4-Stage Pipeline Trace</span>
+            </div>
+
+            <div id="thinkingTimeline" class="thinking-timeline">
+              <!-- Dynamically populated thinking steps -->
+            </div>
+          </div>
+
+          <!-- Web Match Card (Shown if duplicate or close source found) -->
+          <div id="matchCard" class="match-card" style="display: none;">
+            <div class="match-header">
+              <span>Closest Web Source Match</span>
+              <span id="similarityPill" class="similarity-pill">0% Match</span>
+            </div>
+            <div id="matchTitle" class="match-title">Source Title</div>
+            <a id="matchUrl" class="match-url" href="#" target="_blank" rel="noopener noreferrer">
+              <span>Visit matching source</span>
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+              </svg>
+            </a>
+            <div id="matchSnippet" class="match-snippet">
+              "Matching snippet text..."
+            </div>
+          </div>
+
+          <!-- Method and Latency Pill -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.25rem;">
+            <div id="methodPill" class="method-pill">
+              <span>Engine:</span> <strong id="methodText">DuckDuckGo Lite</strong>
+            </div>
+            <span id="latencyText" style="font-size: 0.75rem; color: var(--text-sub); font-family: 'JetBrains Mono', monospace;"></span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Recent Checks Session History -->
+    <section class="history-section card">
+      <div class="card-header">
+        <h3 class="card-title">Recent Audits</h3>
+        <button id="btnClearHistory" class="chip-btn" style="font-size: 0.75rem;">Clear History</button>
+      </div>
+      <div id="historyList" class="history-list">
+        <div style="color: var(--text-sub); font-size: 0.88rem;">No audits recorded yet in this session.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const tweetInput = document.getElementById('tweetInput');
+    const charCount = document.getElementById('charCount');
+    const noteBadge = document.getElementById('noteBadge');
+    const btnVerify = document.getElementById('btnVerify');
+    const btnClear = document.getElementById('btnClear');
+    const btnIcon = document.getElementById('btnIcon');
+    const btnText = document.getElementById('btnText');
+
+    const emptyState = document.getElementById('emptyState');
+    const resultsContent = document.getElementById('resultsContent');
+    const scoreBanner = document.getElementById('scoreBanner');
+    const verdictBadge = document.getElementById('verdictBadge');
+    const scoreNumber = document.getElementById('scoreNumber');
+    const safePill = document.getElementById('safePill');
+
+    const reasoningCard = document.getElementById('reasoningCard');
+    const reasoningText = document.getElementById('reasoningText');
+    const algoMultiplierBadge = document.getElementById('algoMultiplierBadge');
+
+    const criteriaSection = document.getElementById('criteriaSection');
+    const thinkingSection = document.getElementById('thinkingSection');
+    const thinkingTimeline = document.getElementById('thinkingTimeline');
+
+    const matchCard = document.getElementById('matchCard');
+    const matchTitle = document.getElementById('matchTitle');
+    const matchUrl = document.getElementById('matchUrl');
+    const matchSnippet = document.getElementById('matchSnippet');
+    const similarityPill = document.getElementById('similarityPill');
+
+    const methodText = document.getElementById('methodText');
+    const latencyText = document.getElementById('latencyText');
+    const historyList = document.getElementById('historyList');
+
+    // Preset Scenarios
+    const PRESETS = {
+      copiedQuote: "To be, or not to be, that is the question: Whether 'tis nobler in the mind to suffer The slings and arrows of outrageous fortune, Or to take arms against a sea of troubles",
+      marketingClaim: "The best SEO strategy is simply creating pages for every question your customers ask.",
+      techOriginal: "We just open-sourced our custom asynchronous zero-allocation ring buffer written in Rust for robotic telemetry pipelines.",
+      greeting: "Good morning everyone! Hope you all have an awesome and productive day."
+    };
+
+    document.getElementById('btnCopiedQuote').addEventListener('click', () => setDraft(PRESETS.copiedQuote));
+    document.getElementById('btnMarketingClaim').addEventListener('click', () => setDraft(PRESETS.marketingClaim));
+    document.getElementById('btnTechOriginal').addEventListener('click', () => setDraft(PRESETS.techOriginal));
+    document.getElementById('btnGreeting').addEventListener('click', () => setDraft(PRESETS.greeting));
+
+    function setDraft(text) {
+      tweetInput.value = text;
+      updateCharCount();
+      tweetInput.focus();
+    }
+
+    function updateCharCount() {
+      const len = tweetInput.value.length;
+      charCount.textContent = len;
+      if (len > 280) {
+        noteBadge.style.display = 'inline-block';
+      } else {
+        noteBadge.style.display = 'none';
+      }
+    }
+
+    tweetInput.addEventListener('input', updateCharCount);
+
+    btnClear.addEventListener('click', () => {
+      tweetInput.value = '';
+      updateCharCount();
+      tweetInput.focus();
+    });
+
+    // Tab Navigation
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        const tab = btn.dataset.tab;
+        if (tab === 'all') {
+          scoreBanner.style.display = 'flex';
+          reasoningCard.style.display = 'flex';
+          criteriaSection.style.display = 'block';
+          thinkingSection.style.display = 'block';
+          if (currentMatchFound) matchCard.style.display = 'flex';
+        } else if (tab === 'criteria') {
+          scoreBanner.style.display = 'flex';
+          reasoningCard.style.display = 'none';
+          criteriaSection.style.display = 'block';
+          thinkingSection.style.display = 'none';
+          matchCard.style.display = 'none';
+        } else if (tab === 'thinking') {
+          scoreBanner.style.display = 'none';
+          reasoningCard.style.display = 'flex';
+          criteriaSection.style.display = 'none';
+          thinkingSection.style.display = 'block';
+          matchCard.style.display = 'none';
+        } else if (tab === 'match') {
+          scoreBanner.style.display = 'none';
+          reasoningCard.style.display = 'none';
+          criteriaSection.style.display = 'none';
+          thinkingSection.style.display = 'none';
+          matchCard.style.display = 'flex';
+        }
+      });
+    });
+
+    // Keyboard shortcut Ctrl+Enter
+    tweetInput.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        runAudit();
+      }
+    });
+
+    btnVerify.addEventListener('click', runAudit);
+
+    let auditHistory = [];
+    let currentMatchFound = false;
+
+    async function runAudit() {
+      const text = tweetInput.value.trim();
+      if (!text) {
+        tweetInput.focus();
+        return;
+      }
+
+      btnVerify.disabled = true;
+      btnIcon.innerHTML = '<div class="spinner"></div>';
+      btnText.textContent = 'Auditing with Engine...';
+
+      const startTime = performance.now();
+
+      try {
+        const res = await fetch('/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+
+        if (!res.ok) {
+          throw new Error('Server returned ' + res.status);
+        }
+
+        const data = await res.json();
+        const duration = Math.round(performance.now() - startTime);
+
+        displayResults(data, duration);
+        addToHistory(data);
+      } catch (err) {
+        alert('Verification error: ' + err.message);
+      } finally {
+        btnVerify.disabled = false;
+        btnIcon.textContent = '⚡';
+        btnText.textContent = 'Verify Originality';
+      }
+    }
+
+    function displayResults(data, duration) {
+      emptyState.style.display = 'none';
+      resultsContent.style.display = 'flex';
+
+      const score = Math.round(data.originality_score);
+      scoreNumber.textContent = score;
+
+      // Update state classes
+      scoreBanner.className = 'score-banner';
+      let stateClass = 'state-original';
+      if (data.verdict === 'copied') stateClass = 'state-copied';
+      else if (data.verdict === 'paraphrased') stateClass = 'state-paraphrased';
+      else if (data.verdict === 'likely_original') stateClass = 'state-original';
+      scoreBanner.classList.add(stateClass);
+
+      verdictBadge.textContent = data.verdict.replace('_', ' ').toUpperCase();
+
+      if (data.safe_to_publish) {
+        safePill.innerHTML = '✅ <strong style="color: var(--success);">Safe to Publish</strong> (Eligible for Organic Boost)';
+      } else {
+        safePill.innerHTML = '❌ <strong style="color: var(--danger);">Not Recommended</strong> (Algorithm Duplicate Penalty)';
+      }
+
+      // Reasoning & Multiplier
+      reasoningText.textContent = data.reasoning || data.advice;
+      if (data.algo_multiplier) {
+        algoMultiplierBadge.textContent = data.algo_multiplier;
+      }
+
+      // Render Evaluation Criteria
+      if (data.criteria) {
+        renderCriteria(data.criteria);
+      }
+
+      // Render Thinking Timeline
+      if (data.thinking_steps && Array.isArray(data.thinking_steps)) {
+        renderThinking(data.thinking_steps);
+      }
+
+      // Match card
+      if (data.best_match && data.best_match.similarity > 0.05) {
+        currentMatchFound = true;
+        matchCard.style.display = 'flex';
+        matchTitle.textContent = data.best_match.title || 'Web Document Match';
+        matchUrl.href = data.best_match.url;
+        matchUrl.querySelector('span').textContent = data.best_match.url;
+        matchSnippet.textContent = '"' + data.best_match.snippet + '"';
+        const simPct = (data.best_match.similarity * 100).toFixed(1);
+        similarityPill.textContent = simPct + '% Overlap';
+      } else {
+        currentMatchFound = false;
+        matchCard.style.display = 'none';
+      }
+
+      methodText.textContent = data.method;
+      latencyText.textContent = `${duration}ms response time`;
+    }
+
+    function renderCriteria(c) {
+      // 1. Lexical Uniqueness
+      updateCriterion('crit1', c.lexical_uniqueness);
+      // 2. Claim Substantiveness
+      updateCriterion('crit2', c.claim_substantiveness);
+      // 3. Attribution Integrity
+      updateCriterion('crit3', c.attribution_integrity);
+      // 4. Algorithm Multiplier
+      updateCriterion('crit4', c.algo_distribution_impact, true);
+    }
+
+    function updateCriterion(prefix, item, isBoost = false) {
+      const score = Math.round(item.score);
+      document.getElementById(`${prefix}Score`).textContent = score;
+      document.getElementById(`${prefix}Status`).textContent = item.status;
+      document.getElementById(`${prefix}Impact`).textContent = item.impact;
+      document.getElementById(`${prefix}Desc`).textContent = item.description;
+
+      const bar = document.getElementById(`${prefix}Bar`);
+      const statusPill = document.getElementById(`${prefix}Status`);
+
+      bar.style.width = Math.min(100, Math.max(5, score)) + '%';
+
+      bar.className = 'meter-bar-fill';
+      statusPill.className = 'criterion-status-pill';
+
+      if (isBoost) {
+        bar.classList.add(score >= 70 ? 'bar-boost' : (score >= 40 ? 'bar-mid' : 'bar-low'));
+        statusPill.classList.add(score >= 70 ? 'status-pass' : (score >= 40 ? 'status-warn' : 'status-flag'));
+      } else if (score >= 75) {
+        bar.classList.add('bar-high');
+        statusPill.classList.add('status-pass');
+      } else if (score >= 45) {
+        bar.classList.add('bar-mid');
+        statusPill.classList.add('status-warn');
+      } else {
+        bar.classList.add('bar-low');
+        statusPill.classList.add('status-flag');
+      }
+    }
+
+    function renderThinking(steps) {
+      thinkingTimeline.innerHTML = '';
+      steps.forEach((step, idx) => {
+        const div = document.createElement('div');
+        let statusClass = 'step-pass';
+        let chipClass = 'status-pass';
+        let statusText = 'Pass';
+
+        if (step.status === 'skip') {
+          statusClass = 'step-skip';
+          chipClass = 'status-skip';
+          statusText = 'Heuristic Skip';
+        } else if (step.status === 'warn') {
+          statusClass = 'step-warn';
+          chipClass = 'status-warn';
+          statusText = 'Notice';
+        } else if (step.status === 'flag') {
+          statusClass = 'step-flag';
+          chipClass = 'status-flag';
+          statusText = 'Flagged';
+        } else if (step.status === 'info') {
+          statusClass = 'step-skip';
+          chipClass = 'status-skip';
+          statusText = 'Info';
+        }
+
+        div.className = `timeline-step ${statusClass}`;
+        div.innerHTML = `
+          <div class="step-indicator">
+            <div class="step-dot"></div>
+            <div class="step-line"></div>
+          </div>
+          <div class="step-content">
+            <div class="step-header">
+              <div>
+                <span class="step-stage">STAGE ${step.stage}: ${step.stage_name}</span>
+                <h4 class="step-title">${step.title}</h4>
+              </div>
+              <div class="step-meta">
+                <span class="criterion-status-pill ${chipClass}">${statusText}</span>
+                <span class="step-latency">${step.execution_time_ms}ms</span>
+              </div>
+            </div>
+            <p class="step-detail">${step.detail}</p>
+          </div>
+        `;
+        thinkingTimeline.appendChild(div);
+      });
+    }
+
+    function addToHistory(item) {
+      auditHistory.unshift(item);
+      if (auditHistory.length > 8) auditHistory.pop();
+      renderHistory();
+    }
+
+    function renderHistory() {
+      if (auditHistory.length === 0) {
+        historyList.innerHTML = '<div style="color: var(--text-sub); font-size: 0.88rem;">No audits recorded yet.</div>';
+        return;
+      }
+
+      historyList.innerHTML = '';
+      auditHistory.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'history-item';
+        div.onclick = () => {
+          tweetInput.value = item.text;
+          updateCharCount();
+          displayResults(item, 0);
+        };
+
+        const score = Math.round(item.originality_score);
+        let color = 'var(--success)';
+        if (score < 40) color = 'var(--danger)';
+        else if (score < 70) color = 'var(--warning)';
+
+        div.innerHTML = `
+          <div class="history-text">"${item.text}"</div>
+          <div class="history-badge" style="color: ${color};">
+            ${score}/100 • ${item.verdict.replace('_', ' ').toUpperCase()}
+          </div>
+        `;
+        historyList.appendChild(div);
+      });
+    }
+
+    document.getElementById('btnClearHistory').addEventListener('click', () => {
+      auditHistory = [];
+      renderHistory();
+    });
+
+    // Initialize with a preset sample
+    setDraft(PRESETS.copiedQuote);
+  </script>
+</body>
+</html>
