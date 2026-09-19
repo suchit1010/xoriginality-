@@ -231,7 +231,7 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
         words_count, eval.clean_query
     );
 
-    // --- Cascade Stage 2: Web Search ---
+    // --- Cascade Stage 2: Web Search (DDG generic + DDG site:x.com) ---
     let t2_start = std::time::Instant::now();
     let mut results = state
         .search
@@ -242,12 +242,19 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
             Vec::new()
         });
 
-    // Also run targeted X (Twitter) search to discover original creator and viral copypasta
-    let x_query = format!("site:x.com \"{}\"", eval.clean_query);
-    if let Ok(x_results) = state.search.search(&x_query).await {
-        for xr in x_results {
-            if !results.iter().any(|r| r.url == xr.url) {
-                results.push(xr);
+    // Also search the full tweet text (with emoji) as a second parallel query.
+    // The main DDG search naturally returns x.com/twitter.com results — we extract
+    // tweet IDs from ALL results, not just site:-specific ones.
+    // (site:x.com queries are blocked by DDG Lite with 202 from server IPs)
+    let x_search_text = crate::claim_detector::extract_x_search_query(text);
+    if x_search_text != eval.clean_query && x_search_text.split_whitespace().count() >= 5 {
+        tracing::info!("running additional full-text X query: '{}'", x_search_text);
+        if let Ok(full_results) = state.search.search(&x_search_text).await {
+            tracing::info!("full-text search returned {} results", full_results.len());
+            for xr in full_results {
+                if !results.iter().any(|r| r.url == xr.url) {
+                    results.push(xr);
+                }
             }
         }
     }
@@ -255,8 +262,23 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
 
     tracing::info!("draft search query: '{}' returned {} total results", eval.clean_query, results.len());
 
-    // Extract all unique X posts and sort chronologically by Snowflake ID
-    let x_posts = extract_x_posts_from_results(&results);
+    // --- Cascade Stage 2b: X Originator Resolution & Syndication Enrichment ---
+    let mut raw_x_posts = extract_x_posts_from_results(&results);
+    if raw_x_posts.is_empty() {
+        let site_query = format!("site:x.com \"{}\"", eval.clean_query);
+        tracing::info!("no X status links in general results; querying: '{}'", site_query);
+        if let Ok(x_results) = state.search.search(&site_query).await {
+            for xr in &x_results {
+                if !results.iter().any(|r| r.url == xr.url) {
+                    results.push(xr.clone());
+                }
+            }
+            raw_x_posts = extract_x_posts_from_results(&results);
+        }
+    }
+
+    let x_posts = enrich_with_syndication(&state.http, raw_x_posts).await;
+
     let originator = if let Some(earliest) = x_posts.first() {
         let duplicate_count = x_posts.len();
         let is_viral = duplicate_count >= 2;
@@ -639,4 +661,113 @@ pub async fn analyze_batch(state: &AppState, handle: &str, tweets: Vec<Tweet>) -
         count += 1;
     }
     Ok(count)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Syndication API Enrichment
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Enriches a list of X posts found via DDG with exact `created_at` timestamps
+/// from the X Syndication CDN API (completely free, no auth, works for all
+/// public tweets back to 2006).
+///
+/// Endpoint: https://cdn.syndication.twimg.com/tweet-result?id={id}&lang=en
+/// For each tweet ID we successfully enrich, we replace the Snowflake-decoded
+/// approximate timestamp with the exact server-side `created_at` value.
+/// Posts that Syndication can't fetch fall back to the Snowflake estimate.
+pub async fn enrich_with_syndication(
+    http: &reqwest::Client,
+    mut posts: Vec<crate::models::XPostMatch>,
+) -> Vec<crate::models::XPostMatch> {
+    use futures::future::join_all;
+
+    if posts.is_empty() {
+        return posts;
+    }
+
+    #[derive(serde::Deserialize)]
+    struct SyndicationUser {
+        screen_name: Option<String>,
+    }
+
+    #[derive(serde::Deserialize)]
+    #[allow(dead_code)]
+    struct SyndicationResp {
+        id_str: Option<String>,
+        created_at: Option<String>,
+        user: Option<SyndicationUser>,
+    }
+
+    let client = http.clone();
+
+    let futures: Vec<_> = posts
+        .iter()
+        .map(|p| {
+            let id = p.tweet_id.to_string();
+            let c = client.clone();
+            async move {
+                let url = format!(
+                    "https://cdn.syndication.twimg.com/tweet-result?id={}&lang=en&token=0",
+                    id
+                );
+                let resp = c
+                    .get(&url)
+                    .header("Origin", "https://platform.twitter.com")
+                    .header("Referer", "https://platform.twitter.com/")
+                    .header("Accept", "application/json")
+                    .timeout(std::time::Duration::from_secs(5))
+                    .send()
+                    .await
+                    .ok()?;
+
+                if !resp.status().is_success() {
+                    return None;
+                }
+                let data: SyndicationResp = resp.json().await.ok()?;
+
+                // Parse the exact timestamp
+                let ts = data.created_at?;
+                let dt = ts
+                    .parse::<chrono::DateTime<chrono::Utc>>()
+                    .or_else(|_| {
+                        chrono::DateTime::parse_from_str(&ts, "%a %b %d %H:%M:%S %z %Y")
+                            .map(|d| d.with_timezone(&chrono::Utc))
+                    })
+                    .ok()?;
+
+                let handle = data
+                    .user
+                    .as_ref()
+                    .and_then(|u| u.screen_name.clone())
+                    .unwrap_or_default();
+
+                Some((id, handle, dt))
+            }
+        })
+        .collect();
+
+    let enrichment_results = join_all(futures).await;
+
+    // Apply enrichment — update published_at and formatted_date with exact values
+    for (i, maybe_enrich) in enrichment_results.into_iter().enumerate() {
+        if let Some((id, handle, exact_dt)) = maybe_enrich {
+            if let Some(post) = posts.get_mut(i) {
+                post.published_at = exact_dt;
+                post.formatted_date = exact_dt.format("%b %d, %Y at %H:%M UTC").to_string();
+                // If Syndication returned a handle, trust it over URL-parsed handle
+                if !handle.is_empty() {
+                    post.author_handle = handle.clone();
+                    post.tweet_url = format!("https://x.com/{}/status/{}", handle, id);
+                }
+                tracing::info!(
+                    "syndication enriched @{} tweet {} → exact date: {}",
+                    post.author_handle, id, post.formatted_date
+                );
+            }
+        }
+    }
+
+    // Re-sort by exact published_at (not Snowflake estimate)
+    posts.sort_by_key(|p| p.published_at);
+    posts
 }

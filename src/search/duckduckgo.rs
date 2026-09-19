@@ -113,36 +113,213 @@ impl WebSearchProvider for DuckDuckGoProvider {
             results.len()
         );
 
-        // If lite endpoint triggered an anomaly challenge (status 202 or 0 results), fallback to alternative user agent
-        if results.is_empty() && (status.as_u16() == 202 || body.contains("anomaly")) {
-            tracing::warn!("duckduckgo anomaly detected for query '{}', retrying with fallback headers", query);
-            if let Ok(retry_resp) = self
-                .http
-                .post(url)
-                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "en-US,en;q=0.5")
-                .header("Origin", "https://lite.duckduckgo.com")
-                .header("Referer", "https://lite.duckduckgo.com/")
-                .form(&[("q", query)])
-                .send()
-                .await
-            {
-                if let Ok(retry_body) = retry_resp.text().await {
-                    let fallback_results = Self::parse_results(&retry_body);
-                    if !fallback_results.is_empty() {
-                        tracing::info!("duckduckgo fallback succeeded: parsed {} results", fallback_results.len());
-                        results = fallback_results;
-                    }
+        // If DuckDuckGo triggered an anomaly challenge (status 202 or 0 results), fallback to Brave and Bing web scrapers
+        if results.is_empty() {
+            tracing::warn!("duckduckgo returned 0 results for '{}', trying Brave web search fallback", query);
+            let brave_results = self.search_brave(query).await;
+            if !brave_results.is_empty() {
+                tracing::info!("Brave web fallback succeeded: parsed {} results", brave_results.len());
+                results = brave_results;
+            } else {
+                tracing::warn!("Brave returned 0 results, trying Bing web search fallback");
+                let bing_results = self.search_bing(query).await;
+                if !bing_results.is_empty() {
+                    tracing::info!("Bing web fallback succeeded: parsed {} results", bing_results.len());
+                    results = bing_results;
                 }
             }
         }
 
-        Ok(results)
+        // Always scan raw HTML snippets and results for direct x.com/twitter.com status URLs
+        let mut all_results = Vec::new();
+        let mut seen_urls = std::collections::HashSet::new();
+        for r in results {
+            if seen_urls.insert(r.url.clone()) {
+                all_results.push(r);
+            }
+        }
+
+        Ok(all_results)
     }
 }
 
 impl DuckDuckGoProvider {
+    /// Free Brave Search scraper fallback (search.brave.com)
+    async fn search_brave(&self, query: &str) -> Vec<SearchResult> {
+        let resp = match self
+            .http
+            .get("https://search.brave.com/search")
+            .query(&[("q", query)])
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        };
+
+        if !resp.status().is_success() {
+            return Vec::new();
+        }
+
+        let html = match resp.text().await {
+            Ok(h) => h,
+            Err(_) => return Vec::new(),
+        };
+
+        Self::parse_brave_html(&html)
+    }
+
+    /// Free Bing Search scraper fallback with Base64 redirect decoding
+    async fn search_bing(&self, query: &str) -> Vec<SearchResult> {
+        let resp = match self
+            .http
+            .get("https://www.bing.com/search")
+            .query(&[("q", query), ("count", "10")])
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Accept-Language", "en-US,en;q=0.5")
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => return Vec::new(),
+        };
+
+        if !resp.status().is_success() {
+            return Vec::new();
+        }
+
+        let html = match resp.text().await {
+            Ok(h) => h,
+            Err(_) => return Vec::new(),
+        };
+
+        Self::parse_bing_html(&html)
+    }
+
+    pub fn parse_brave_html(html: &str) -> Vec<SearchResult> {
+        let mut results = Vec::new();
+        let snippet_re = Regex::new(r#"(?s)<div class="snippet[^"]*"[^>]*data-type="web"[^>]*>(.*?)(?:<div class="snippet|$)"#).unwrap();
+        let url_re = Regex::new(r#"<a\s+href="([^"]+)""#).unwrap();
+        let title_re = Regex::new(r#"(?s)<div[^>]*class="[^"]*title[^"]*"[^>]*>(.*?)</div>"#).unwrap();
+        let desc_re = Regex::new(r#"(?s)<div[^>]*class="[^"]*content[^"]*"[^>]*>(.*?)</div>"#).unwrap();
+
+        for cap in snippet_re.captures_iter(html) {
+            let block = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
+            let url = url_re
+                .captures(block)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str())
+                .unwrap_or_default();
+
+            if url.is_empty() || url.starts_with('/') {
+                continue;
+            }
+
+            let title = title_re
+                .captures(block)
+                .and_then(|c| c.get(1))
+                .map(|m| Self::clean_html(m.as_str()))
+                .unwrap_or_else(|| url.to_string());
+
+            let snippet = desc_re
+                .captures(block)
+                .and_then(|c| c.get(1))
+                .map(|m| Self::clean_html(m.as_str()))
+                .unwrap_or_default();
+
+            results.push(SearchResult {
+                url: url.to_string(),
+                title,
+                snippet,
+            });
+        }
+
+        // Also scan page for explicit status URLs
+        let tweet_re = Regex::new(r#"https://(?:x|twitter)\.com/([a-zA-Z0-9_]{1,30})/status/(\d{15,22})"#).unwrap();
+        for cap in tweet_re.captures_iter(html) {
+            let full_url = cap.get(0).unwrap().as_str();
+            let handle = &cap[1];
+            let tweet_id = &cap[2];
+            if !results.iter().any(|r| r.url == full_url) {
+                results.push(SearchResult {
+                    url: full_url.to_string(),
+                    title: format!("Post by @{} on X", handle),
+                    snippet: format!("Direct status match on X for tweet id {}", tweet_id),
+                });
+            }
+        }
+
+        results
+    }
+
+    pub fn parse_bing_html(html: &str) -> Vec<SearchResult> {
+        let mut results = Vec::new();
+        let h2_re = Regex::new(r#"(?s)<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>"#).unwrap();
+
+        for cap in h2_re.captures_iter(html) {
+            let raw_url = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
+            let title = cap.get(2).map(|m| Self::clean_html(m.as_str())).unwrap_or_default();
+
+            let target_url = if raw_url.contains("/ck/a?!") {
+                Self::decode_bing_redirect(raw_url).unwrap_or_else(|| raw_url.to_string())
+            } else {
+                raw_url.to_string()
+            };
+
+            if !target_url.is_empty() && !target_url.starts_with('/') {
+                results.push(SearchResult {
+                    url: target_url,
+                    title,
+                    snippet: String::new(),
+                });
+            }
+        }
+
+        results
+    }
+
+    /// Decodes Bing's Base64 redirect parameter: ...&u=a1<BASE64>&...
+    pub fn decode_bing_redirect(url: &str) -> Option<String> {
+        let u_idx = url.find("&u=a1")?;
+        let rest = &url[u_idx + 5..];
+        let end_idx = rest.find('&').unwrap_or(rest.len());
+        let b64 = &rest[..end_idx];
+        Self::decode_base64(b64)
+    }
+
+    fn decode_base64(input: &str) -> Option<String> {
+        let clean = input.replace('-', "+").replace('_', "/");
+        let pad_len = (4 - (clean.len() % 4)) % 4;
+        let padded = format!("{}{}", clean, "=".repeat(pad_len));
+
+        let mut bytes = Vec::new();
+        let mut buf: u32 = 0;
+        let mut bits = 0;
+
+        for b in padded.bytes() {
+            let val = match b {
+                b'A'..=b'Z' => b - b'A',
+                b'a'..=b'z' => b - b'a' + 26,
+                b'0'..=b'9' => b - b'0' + 52,
+                b'+' => 62,
+                b'/' => 63,
+                b'=' => break,
+                _ => continue,
+            } as u32;
+            buf = (buf << 6) | val;
+            bits += 6;
+            if bits >= 8 {
+                bits -= 8;
+                bytes.push((buf >> bits) as u8);
+            }
+        }
+        String::from_utf8(bytes).ok()
+    }
+
     pub fn parse_results(html: &str) -> Vec<SearchResult> {
         let link_re = Regex::new(r#"(?s)<a[^>]+href="([^"]+)"[^>]*class=['"]result-link['"][^>]*>(.*?)</a>"#).unwrap();
         let snippet_re = Regex::new(r#"(?s)<td[^>]*class=['"]result-snippet['"][^>]*>(.*?)</td>"#).unwrap();
@@ -175,6 +352,21 @@ impl DuckDuckGoProvider {
                     url: url.clone(),
                     title: title.clone(),
                     snippet: snippet.clone(),
+                });
+            }
+        }
+
+        // Also scan page for explicit status URLs
+        let tweet_re = Regex::new(r#"https://(?:x|twitter)\.com/([a-zA-Z0-9_]{1,30})/status/(\d{15,22})"#).unwrap();
+        for cap in tweet_re.captures_iter(html) {
+            let full_url = cap.get(0).unwrap().as_str();
+            let handle = &cap[1];
+            let tweet_id = &cap[2];
+            if !results.iter().any(|r| r.url == full_url) {
+                results.push(SearchResult {
+                    url: full_url.to_string(),
+                    title: format!("Post by @{} on X", handle),
+                    snippet: format!("Direct status match on X for tweet id {}", tweet_id),
                 });
             }
         }
@@ -218,6 +410,29 @@ mod tests {
         assert_eq!(results[0].url, "https://example.com/hamlet");
         assert_eq!(results[0].title, "To be or not to be");
         assert!(results[0].snippet.contains("that is the question"));
+    }
+
+    #[test]
+    fn test_decode_bing_redirect() {
+        let bing_url = "https://www.bing.com/ck/a?!&&p=123&u=a1aHR0cHM6Ly94LmNvbS9zb21ldXNlci9zdGF0dXMvMTk5MjY4MzczNDQ3OTY1NTM4NQ&ntb=1";
+        let decoded = DuckDuckGoProvider::decode_bing_redirect(bing_url).unwrap();
+        assert_eq!(decoded, "https://x.com/someuser/status/1992683734479655385");
+    }
+
+    #[test]
+    fn test_parse_brave_html() {
+        let brave_html = r#"
+            <div class="snippet" data-type="web">
+                <a href="https://x.com/SkusSkus/status/1992683734479655385">
+                    <div class="title">SkusSkus on X: 'What is the lore behind your header'</div>
+                </a>
+                <div class="content">Viral tweet original post on X</div>
+            </div>
+        "#;
+        let results = DuckDuckGoProvider::parse_brave_html(brave_html);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].url, "https://x.com/SkusSkus/status/1992683734479655385");
+        assert!(results[0].title.contains("SkusSkus"));
     }
 
     #[tokio::test]

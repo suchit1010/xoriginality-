@@ -22,6 +22,11 @@ pub struct Config {
     /// SerpApi credentials (alternative search backend).
     pub serpapi_api_key: Option<String>,
 
+    /// URL of the x-originator-svc microservice (port 8081 by default).
+    /// When set the pipeline calls this service for accurate X originator resolution
+    /// instead of the DDG site:x.com fallback.
+    pub x_originator_svc_url: Option<String>,
+
     /// Set to 1/true to disable web search entirely (all tweets score 100% original).
     pub disable_search: bool,
 
@@ -64,6 +69,9 @@ impl Config {
             google_cse_cx: env::var("GOOGLE_CSE_CX").ok(),
             serpapi_api_key: env::var("SERPAPI_API_KEY").ok(),
             brave_search_api_key: env::var("BRAVE_SEARCH_API_KEY").ok(),
+            x_originator_svc_url: env::var("X_ORIGINATOR_SVC_URL")
+                .ok()
+                .or_else(|| Some("http://localhost:8081".to_string())),
             disable_search,
             gemini_api_key,
             gemini_model,

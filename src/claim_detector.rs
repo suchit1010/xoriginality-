@@ -29,8 +29,8 @@ pub fn evaluate_tweet(text: &str) -> ClaimEvaluation {
         .filter(|w| !w.starts_with('@') && !w.starts_with("http://") && !w.starts_with("https://"))
         .collect();
 
-    // Less than 4 words after stripping mentions/urls
-    if words.len() < 4 {
+    // Less than 6 words after stripping mentions/urls — too short for reliable DDG search
+    if words.len() < 6 {
         return ClaimEvaluation {
             should_search: false,
             reason: "too_short_for_claim",
@@ -130,6 +130,29 @@ pub fn extract_search_query(text: &str) -> String {
     }
 
     selected_words.join(" ")
+}
+
+/// Formulates a search query optimized specifically for finding the original X/Twitter post.
+/// Unlike `extract_search_query`, this:
+/// - Keeps emoji (crucial for matching viral tweet variants)
+/// - Uses more words (up to 20) for a tighter exact-phrase match
+/// - Does NOT strip question marks or exclamation marks
+pub fn extract_x_search_query(text: &str) -> String {
+    let mut words = Vec::new();
+    for w in text.split_whitespace() {
+        if w.starts_with('@') || w.starts_with("http://") || w.starts_with("https://") {
+            continue;
+        }
+        // Strip only leading/trailing ASCII punctuation (not emoji)
+        let cleaned = w.trim_matches(|c: char| c.is_ascii_punctuation() && c != '?' && c != '!' && c != '\'' && c != '-');
+        if !cleaned.is_empty() {
+            words.push(cleaned);
+        }
+        if words.len() >= 20 {
+            break;
+        }
+    }
+    words.join(" ")
 }
 
 #[cfg(test)]

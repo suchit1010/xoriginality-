@@ -10,6 +10,7 @@ mod search;
 mod similarity;
 mod store;
 mod x_client;
+mod x_originator_client;
 
 use std::sync::Arc;
 
