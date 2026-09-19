@@ -60,6 +60,58 @@ pub fn combined_similarity(a: &str, b: &str) -> f32 {
     (j * 0.7 + l * 0.3).clamp(0.0, 1.0)
 }
 
+/// Decodes a 64-bit Twitter Snowflake ID into its exact creation timestamp (UTC).
+/// Twitter Snowflake epoch begins at 1288834974657 ms (Nov 04, 2010 01:42:54 UTC).
+pub fn parse_twitter_snowflake_id(id_str: &str) -> Option<(u64, chrono::DateTime<chrono::Utc>)> {
+    let id: u64 = id_str.parse().ok()?;
+    // Twitter epoch: 1288834974657 ms
+    let ms = (id >> 22) + 1288834974657;
+    let secs = (ms / 1000) as i64;
+    let nsecs = ((ms % 1000) * 1_000_000) as u32;
+    let dt = chrono::DateTime::from_timestamp(secs, nsecs)?;
+    Some((id, dt))
+}
+
+/// Inspects search results to extract all unique X (Twitter) status URLs and resolves
+/// their author handle, snowflake ID, and chronological creation timestamp.
+pub fn extract_x_posts_from_results(results: &[crate::search::SearchResult]) -> Vec<crate::models::XPostMatch> {
+    use crate::models::XPostMatch;
+    use regex::Regex;
+
+    let mut posts = Vec::new();
+    let re = Regex::new(r"(?:twitter\.com|x\.com)/([a-zA-Z0-9_]{1,30})/status/(\d{15,22})").unwrap();
+    let mut seen_handles = HashSet::new();
+
+    for r in results {
+        let text_to_check = format!("{} {}", r.url, r.snippet);
+        for cap in re.captures_iter(&text_to_check) {
+            let handle = cap[1].to_string();
+            let id_str = &cap[2];
+
+            if seen_handles.contains(&handle) {
+                continue;
+            }
+            seen_handles.insert(handle.clone());
+
+            if let Some((id, dt)) = parse_twitter_snowflake_id(id_str) {
+                posts.push(XPostMatch {
+                    author_handle: handle.clone(),
+                    tweet_id: id,
+                    tweet_url: format!("https://x.com/{}/status/{}", handle, id_str),
+                    published_at: dt,
+                    formatted_date: dt.format("%b %d, %Y").to_string(),
+                    snippet: r.snippet.clone(),
+                });
+            }
+        }
+    }
+
+    // Sort ascending: smallest Snowflake ID = earliest published on X
+    posts.sort_by_key(|p| p.tweet_id);
+    posts
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,5 +148,12 @@ mod tests {
     fn empty_strings_do_not_panic() {
         assert_eq!(combined_similarity("", ""), 0.3);
         assert_eq!(jaccard_similarity("", "hello", 3), 0.0);
+    }
+
+    #[test]
+    fn test_parse_twitter_snowflake_id() {
+        let (id, dt) = parse_twitter_snowflake_id("2040840042734588042").expect("valid snowflake");
+        assert_eq!(id, 2040840042734588042);
+        assert_eq!(dt.format("%Y-%m-%d").to_string(), "2026-04-05");
     }
 }

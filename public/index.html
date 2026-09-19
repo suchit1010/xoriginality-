@@ -958,12 +958,155 @@
       margin-top: 0.5rem;
     }
 
-    kbd {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 4px;
-      padding: 0.1rem 0.35rem;
-      font-family: inherit;
+    /* -------------------------------------------------------------
+       ORIGINATOR & VIRAL COPYPASTA CARD (X Snowflake Resolution)
+    -------------------------------------------------------------- */
+    .originator-card {
+      background: linear-gradient(135deg, rgba(255, 212, 0, 0.08), rgba(244, 33, 46, 0.06));
+      border: 1.5px solid rgba(255, 212, 0, 0.35);
+      border-radius: 14px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+      position: relative;
+      box-shadow: 0 4px 20px rgba(255, 212, 0, 0.08);
+    }
+
+    .originator-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .originator-badge-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .originator-crown {
+      font-size: 1.4rem;
+      filter: drop-shadow(0 0 6px rgba(255, 212, 0, 0.5));
+    }
+
+    .originator-title {
+      font-size: 0.92rem;
+      font-weight: 800;
+      color: #ffd400;
+      display: block;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .originator-sub {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .copypasta-pill {
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .originator-user-row {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr 1fr;
+      gap: 0.75rem;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 0.85rem 1rem;
+      border-radius: 10px;
+      border: 1px solid var(--border-subtle);
+    }
+
+    @media (max-width: 640px) {
+      .originator-user-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .author-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      color: var(--text-sub);
+      display: block;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.2rem;
+    }
+
+    .originator-handle {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--primary);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      word-break: break-all;
+    }
+
+    .originator-handle:hover {
+      text-decoration: underline;
+    }
+
+    .originator-date, .originator-count {
+      font-size: 0.92rem;
+      font-weight: 700;
+      color: var(--text-main);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .originator-verdict-text {
+      font-size: 0.88rem;
+      color: var(--text-main);
+      line-height: 1.45;
+    }
+
+    .copycats-container {
+      margin-top: 0.35rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .copycats-title {
+      font-size: 0.74rem;
+      color: var(--text-sub);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.45rem;
+    }
+
+    .copycats-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .copycat-tag {
+      font-size: 0.74rem;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      padding: 0.25rem 0.6rem;
+      border-radius: 6px;
+      text-decoration: none;
+      font-family: 'JetBrains Mono', monospace;
+      transition: all 0.15s;
+    }
+
+    .copycat-tag:hover {
+      color: var(--primary);
+      border-color: rgba(29, 155, 240, 0.4);
+      background: rgba(29, 155, 240, 0.1);
     }
   </style>
 </head>
@@ -1025,6 +1168,7 @@
 
         <div class="presets-label">Quick Test Scenarios:</div>
         <div class="preset-chips">
+          <button class="chip-btn" id="btnViralLore">🔥 Lore Behind Header (Viral)</button>
           <button class="chip-btn" id="btnCopiedQuote">🎭 Copied Shakespeare</button>
           <button class="chip-btn" id="btnMarketingClaim">📈 Marketing Claim</button>
           <button class="chip-btn" id="btnTechOriginal">🚀 Original Tech Post</button>
@@ -1065,6 +1209,7 @@
           <!-- Section Switcher Tabs -->
           <div class="result-tabs" role="tablist">
             <button class="tab-btn active" data-tab="all">All Insights</button>
+            <button class="tab-btn" data-tab="originator">👑 X Originator</button>
             <button class="tab-btn" data-tab="criteria">📊 Evaluation Criteria</button>
             <button class="tab-btn" data-tab="thinking">🧠 Thinking Process</button>
             <button class="tab-btn" data-tab="match">🌐 Web Match</button>
@@ -1097,6 +1242,44 @@
             </div>
             <div id="reasoningText" class="reasoning-body">
               Original phrasing and claims with negligible web overlap. Optimal for X recommendation algorithm reach.
+            </div>
+          </div>
+
+          <!-- Original Originator on X Card -->
+          <div id="originatorCard" class="originator-card" style="display: none;">
+            <div class="originator-header">
+              <div class="originator-badge-wrap">
+                <span class="originator-crown">👑</span>
+                <div>
+                  <span class="originator-title">Earliest Originator on X</span>
+                  <span class="originator-sub" id="originatorSub">Resolved via Twitter Snowflake Chronology</span>
+                </div>
+              </div>
+              <span id="copypastaBadge" class="copypasta-pill status-flag">⚠️ Viral Copypasta</span>
+            </div>
+
+            <div class="originator-user-row">
+              <div>
+                <span class="author-label">First Published By</span>
+                <a id="originatorLink" href="#" target="_blank" rel="noopener noreferrer" class="originator-handle">@handle</a>
+              </div>
+              <div>
+                <span class="author-label">Earliest Date on X</span>
+                <span id="originatorDate" class="originator-date">Nov 25, 2025</span>
+              </div>
+              <div>
+                <span class="author-label">X Duplicate Frequency</span>
+                <span id="originatorCount" class="originator-count">6+ Accounts</span>
+              </div>
+            </div>
+
+            <p id="originatorVerdictText" class="originator-verdict-text">
+              Viral copypasta template detected. First posted on X by @bofrot1cedi.
+            </p>
+
+            <div id="copycatsList" class="copycats-container" style="display: none;">
+              <div class="copycats-title">Identified Accounts on X with Identical Phrasing:</div>
+              <div id="copycatsTags" class="copycats-tags"></div>
             </div>
           </div>
 
@@ -1265,6 +1448,16 @@
     const reasoningText = document.getElementById('reasoningText');
     const algoMultiplierBadge = document.getElementById('algoMultiplierBadge');
 
+    const originatorCard = document.getElementById('originatorCard');
+    const originatorLink = document.getElementById('originatorLink');
+    const originatorDate = document.getElementById('originatorDate');
+    const originatorCount = document.getElementById('originatorCount');
+    const originatorVerdictText = document.getElementById('originatorVerdictText');
+    const copypastaBadge = document.getElementById('copypastaBadge');
+    const copycatsList = document.getElementById('copycatsList');
+    const copycatsTags = document.getElementById('copycatsTags');
+    let currentOriginatorFound = false;
+
     const criteriaSection = document.getElementById('criteriaSection');
     const thinkingSection = document.getElementById('thinkingSection');
     const thinkingTimeline = document.getElementById('thinkingTimeline');
@@ -1281,12 +1474,14 @@
 
     // Preset Scenarios
     const PRESETS = {
+      viralLore: "What’s the lore behind your header?👀",
       copiedQuote: "To be, or not to be, that is the question: Whether 'tis nobler in the mind to suffer The slings and arrows of outrageous fortune, Or to take arms against a sea of troubles",
       marketingClaim: "The best SEO strategy is simply creating pages for every question your customers ask.",
       techOriginal: "We just open-sourced our custom asynchronous zero-allocation ring buffer written in Rust for robotic telemetry pipelines.",
       greeting: "Good morning everyone! Hope you all have an awesome and productive day."
     };
 
+    document.getElementById('btnViralLore').addEventListener('click', () => setDraft(PRESETS.viralLore));
     document.getElementById('btnCopiedQuote').addEventListener('click', () => setDraft(PRESETS.copiedQuote));
     document.getElementById('btnMarketingClaim').addEventListener('click', () => setDraft(PRESETS.marketingClaim));
     document.getElementById('btnTechOriginal').addEventListener('click', () => setDraft(PRESETS.techOriginal));
@@ -1326,24 +1521,35 @@
         if (tab === 'all') {
           scoreBanner.style.display = 'flex';
           reasoningCard.style.display = 'flex';
+          if (currentOriginatorFound) originatorCard.style.display = 'block';
           criteriaSection.style.display = 'block';
           thinkingSection.style.display = 'block';
           if (currentMatchFound) matchCard.style.display = 'flex';
+        } else if (tab === 'originator') {
+          scoreBanner.style.display = 'flex';
+          reasoningCard.style.display = 'none';
+          if (currentOriginatorFound) originatorCard.style.display = 'block';
+          criteriaSection.style.display = 'none';
+          thinkingSection.style.display = 'none';
+          matchCard.style.display = 'none';
         } else if (tab === 'criteria') {
           scoreBanner.style.display = 'flex';
           reasoningCard.style.display = 'none';
+          originatorCard.style.display = 'none';
           criteriaSection.style.display = 'block';
           thinkingSection.style.display = 'none';
           matchCard.style.display = 'none';
         } else if (tab === 'thinking') {
           scoreBanner.style.display = 'none';
           reasoningCard.style.display = 'flex';
+          originatorCard.style.display = 'none';
           criteriaSection.style.display = 'none';
           thinkingSection.style.display = 'block';
           matchCard.style.display = 'none';
         } else if (tab === 'match') {
           scoreBanner.style.display = 'none';
           reasoningCard.style.display = 'none';
+          originatorCard.style.display = 'none';
           criteriaSection.style.display = 'none';
           thinkingSection.style.display = 'none';
           matchCard.style.display = 'flex';
@@ -1428,6 +1634,45 @@
       reasoningText.textContent = data.reasoning || data.advice;
       if (data.algo_multiplier) {
         algoMultiplierBadge.textContent = data.algo_multiplier;
+      }
+
+      // Earliest Originator on X Card
+      if (data.originator && data.originator.first_poster_handle) {
+        currentOriginatorFound = true;
+        originatorCard.style.display = 'block';
+        const handle = data.originator.first_poster_handle;
+        originatorLink.textContent = handle.startsWith('@') ? handle : '@' + handle;
+        originatorLink.href = data.originator.first_tweet_url || `https://x.com/${handle.replace('@','')}`;
+        originatorDate.textContent = data.originator.earliest_published_at || 'Resolved via Snowflake';
+        originatorCount.textContent = (data.originator.duplicate_count_on_x || 1) + ' Accounts on X';
+        originatorVerdictText.textContent = data.originator.deduplication_verdict || '';
+
+        if (data.originator.is_viral_copypasta) {
+          copypastaBadge.className = 'copypasta-pill status-flag';
+          copypastaBadge.textContent = '⚠️ Viral Copypasta Penalty (-0.4x)';
+        } else {
+          copypastaBadge.className = 'copypasta-pill status-pass';
+          copypastaBadge.textContent = '✓ Unique on X';
+        }
+
+        if (data.originator.recent_copycats && data.originator.recent_copycats.length > 0) {
+          copycatsList.style.display = 'block';
+          copycatsTags.innerHTML = '';
+          data.originator.recent_copycats.forEach(c => {
+            const tag = document.createElement('a');
+            tag.className = 'copycat-tag';
+            tag.href = c.url;
+            tag.target = '_blank';
+            tag.rel = 'noopener noreferrer';
+            tag.textContent = `${c.author_handle} (${c.published_at ? c.published_at.slice(0, 10) : 'tweet'})`;
+            copycatsTags.appendChild(tag);
+          });
+        } else {
+          copycatsList.style.display = 'none';
+        }
+      } else {
+        currentOriginatorFound = false;
+        originatorCard.style.display = 'none';
       }
 
       // Render Evaluation Criteria

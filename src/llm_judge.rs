@@ -108,15 +108,22 @@ pub async fn judge_with_gemini(
         .and_then(|p| p.text)
         .unwrap_or_default();
 
-    let cleaned = raw_text
-        .trim()
-        .trim_start_matches("```json")
-        .trim_start_matches("```")
-        .trim_end_matches("```")
-        .trim();
+    let cleaned = extract_json_block(&raw_text);
 
     serde_json::from_str::<LlmVerdict>(cleaned)
         .map_err(|e| AppError::Llm(format!("could not parse gemini verdict ({e}): {raw_text}")))
+}
+
+fn extract_json_block(raw: &str) -> &str {
+    let text = raw.trim();
+    if let Some(start) = text.find('{') {
+        if let Some(end) = text.rfind('}') {
+            if end >= start {
+                return &text[start..=end];
+            }
+        }
+    }
+    text
 }
 
 // ---------------- Anthropic Claude ----------------
@@ -193,12 +200,7 @@ pub async fn judge_with_anthropic(
         .and_then(|c| c.text.clone())
         .unwrap_or_default();
 
-    let cleaned = raw_text
-        .trim()
-        .trim_start_matches("```json")
-        .trim_start_matches("```")
-        .trim_end_matches("```")
-        .trim();
+    let cleaned = extract_json_block(&raw_text);
 
     serde_json::from_str::<LlmVerdict>(cleaned)
         .map_err(|e| AppError::Llm(format!("could not parse anthropic verdict ({e}): {raw_text}")))

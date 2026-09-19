@@ -92,6 +92,30 @@ pub struct EvaluationCriteria {
     pub algo_distribution_impact: CriterionScore,
 }
 
+/// Discovered post on X with chronological Snowflake resolution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct XPostMatch {
+    pub author_handle: String,
+    pub tweet_id: u64,
+    pub tweet_url: String,
+    pub published_at: DateTime<Utc>,
+    pub formatted_date: String,
+    pub snippet: String,
+}
+
+/// Information about the first creator / earliest tweet found on X and viral frequency.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OriginatorInfo {
+    pub first_poster_handle: String,
+    pub first_tweet_url: String,
+    pub earliest_published_at: String,
+    pub earliest_tweet_id: u64,
+    pub is_viral_copypasta: bool,
+    pub duplicate_count_on_x: usize,
+    pub recent_copycats: Vec<XPostMatch>,
+    pub deduplication_verdict: String,
+}
+
 /// Comprehensive evaluation result for draft verification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DraftEvaluation {
@@ -100,5 +124,7 @@ pub struct DraftEvaluation {
     pub criteria: EvaluationCriteria,
     pub reasoning: String,
     pub algo_multiplier: String,
+    pub originator: Option<OriginatorInfo>,
 }
+
 

@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use crate::aggregate::build_report;
 use crate::error::AppError;
 use crate::models::{
-    AccountReport, EvaluationCriteria, MatchedSource, ThinkingStep, Tweet, TweetAnalysis, Verdict,
+    AccountReport, EvaluationCriteria, MatchedSource, OriginatorInfo, ThinkingStep, Tweet,
+    TweetAnalysis, Verdict,
 };
 use crate::pipeline::analyze_batch;
 use crate::AppState;
@@ -147,6 +148,7 @@ pub struct VerifyDraftResponse {
     pub criteria: EvaluationCriteria,
     pub reasoning: String,
     pub algo_multiplier: String,
+    pub originator: Option<OriginatorInfo>,
 }
 
 pub async fn verify_draft_handler(
@@ -184,6 +186,7 @@ pub async fn verify_draft_handler(
         criteria: eval.criteria,
         reasoning: eval.reasoning,
         algo_multiplier: eval.algo_multiplier,
+        originator: eval.originator,
     }))
 }
 

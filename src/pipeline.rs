@@ -4,10 +4,10 @@ use crate::claim_detector::evaluate_tweet;
 use crate::error::AppError;
 use crate::llm_judge::judge_originality;
 use crate::models::{
-    CriterionScore, DraftEvaluation, EvaluationCriteria, MatchedSource, ThinkingStep, Tweet,
-    TweetAnalysis, Verdict,
+    CriterionScore, DraftEvaluation, EvaluationCriteria, MatchedSource, OriginatorInfo,
+    ThinkingStep, Tweet, TweetAnalysis, Verdict,
 };
-use crate::similarity::combined_similarity;
+use crate::similarity::{combined_similarity, extract_x_posts_from_results};
 use crate::AppState;
 
 fn bucket_verdict(state: &AppState, score: f32) -> Verdict {
@@ -222,6 +222,7 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
             criteria,
             reasoning: "Classified as casual social conversation or greeting. Completely original personal expression with zero duplicate penalty risk.".to_string(),
             algo_multiplier: "1.0x (Organic In-Network)".to_string(),
+            originator: None,
         });
     }
 
@@ -232,7 +233,7 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
 
     // --- Cascade Stage 2: Web Search ---
     let t2_start = std::time::Instant::now();
-    let results = state
+    let mut results = state
         .search
         .search(&eval.clean_query)
         .await
@@ -240,14 +241,57 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
             tracing::warn!("search failed for draft text: {e}");
             Vec::new()
         });
+
+    // Also run targeted X (Twitter) search to discover original creator and viral copypasta
+    let x_query = format!("site:x.com \"{}\"", eval.clean_query);
+    if let Ok(x_results) = state.search.search(&x_query).await {
+        for xr in x_results {
+            if !results.iter().any(|r| r.url == xr.url) {
+                results.push(xr);
+            }
+        }
+    }
     let t2_ms = t2_start.elapsed().as_millis() as u64;
 
-    tracing::info!("draft search query: '{}' returned {} results", eval.clean_query, results.len());
+    tracing::info!("draft search query: '{}' returned {} total results", eval.clean_query, results.len());
 
-    let step2_detail = format!(
-        "Queried search engine with \"{}\". Retrieved {} matching candidates from the live web index.",
-        eval.clean_query, results.len()
-    );
+    // Extract all unique X posts and sort chronologically by Snowflake ID
+    let x_posts = extract_x_posts_from_results(&results);
+    let originator = if let Some(earliest) = x_posts.first() {
+        let duplicate_count = x_posts.len();
+        let is_viral = duplicate_count >= 2;
+        Some(OriginatorInfo {
+            first_poster_handle: earliest.author_handle.clone(),
+            first_tweet_url: earliest.tweet_url.clone(),
+            earliest_published_at: earliest.formatted_date.clone(),
+            earliest_tweet_id: earliest.tweet_id,
+            is_viral_copypasta: is_viral,
+            duplicate_count_on_x: duplicate_count,
+            recent_copycats: x_posts.iter().skip(1).take(5).cloned().collect(),
+            deduplication_verdict: if is_viral {
+                format!(
+                    "Viral Copypasta Pattern: {} accounts posted this on X. Earliest original: @{} on {}.",
+                    duplicate_count, earliest.author_handle, earliest.formatted_date
+                )
+            } else {
+                format!("Matched original post on X by @{} on {}.", earliest.author_handle, earliest.formatted_date)
+            },
+        })
+    } else {
+        None
+    };
+
+    let step2_detail = if let Some(ref orig) = originator {
+        format!(
+            "Queried live web & X indices. Located {} matches ({} distinct X accounts). Earliest post on X originated by @{} on {}.",
+            results.len(), orig.duplicate_count_on_x, orig.first_poster_handle, orig.earliest_published_at
+        )
+    } else {
+        format!(
+            "Queried search engine with \"{}\". Retrieved {} matching candidates from the live web index.",
+            eval.clean_query, results.len()
+        )
+    };
 
     // --- Cascade Stage 3: Lexical Matching & Similarity ---
     let t3_start = std::time::Instant::now();
@@ -303,11 +347,15 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
         )
     };
 
-    // --- Cascade Stage 4: Conditional LLM Judge Escalation ---
+    // --- Cascade Stage 4: Conditional LLM Judge Escalation & X Copypasta Check ---
     let t4_start = std::time::Instant::now();
     let mut llm_reasoning: Option<String> = None;
 
-    let (final_score, method) = if state.config.use_llm_judge && !matches.is_empty() && (0.20..=0.85).contains(&best_sim) {
+    let is_copypasta = originator.as_ref().map(|o| o.is_viral_copypasta).unwrap_or(false) && best_sim >= 0.30;
+
+    let (final_score, method) = if is_copypasta {
+        (20.0, "x_algorithm_copypasta_penalty".to_string())
+    } else if state.config.use_llm_judge && !matches.is_empty() && (0.20..=0.85).contains(&best_sim) {
         match judge_originality(&state.http, &state.config, &dummy_tweet.text, &matches).await {
             Ok((v, model_name)) => {
                 llm_reasoning = Some(v.reasoning.clone());
@@ -323,9 +371,22 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
     };
     let t4_ms = t4_start.elapsed().as_millis() as u64;
 
-    let verdict = bucket_verdict(state, final_score);
+    let verdict = if is_copypasta {
+        Verdict::Copied
+    } else {
+        bucket_verdict(state, final_score)
+    };
 
-    let (step4_status, step4_detail) = if let Some(ref reason) = llm_reasoning {
+    let (step4_status, step4_detail) = if is_copypasta {
+        let orig = originator.as_ref().unwrap();
+        (
+            "flag",
+            format!(
+                "X Deduplication Penalty Triggered: Viral copypasta format detected across {} accounts. Earliest creator identified: @{} on {} ({}). In X's recommendation algorithm, duplicate engagement bait is clustered and demoted in the 'For You' feed.",
+                orig.duplicate_count_on_x, orig.first_poster_handle, orig.earliest_published_at, orig.first_tweet_url
+            ),
+        )
+    } else if let Some(ref reason) = llm_reasoning {
         (
             if final_score >= 70.0 { "pass" } else { "warn" },
             format!("AI Judge Evaluation: \"{}\" (Assigned Score: {:.0}/100)", reason, final_score),
@@ -358,8 +419,8 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
         },
         ThinkingStep {
             stage: 2,
-            stage_name: "Web Index Retrieval".to_string(),
-            title: "Live Web Corpus Query".to_string(),
+            stage_name: "Web & X Index Retrieval".to_string(),
+            title: "Live Multi-Source & X Query".to_string(),
             detail: step2_detail,
             status: if matches.is_empty() { "info".to_string() } else { "pass".to_string() },
             execution_time_ms: t2_ms,
@@ -383,10 +444,22 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
     ];
 
     // Compute Twitter/X Algorithm Criteria Rubric
-    let uniqueness_score = (100.0 - best_sim * 100.0).clamp(0.0, 100.0);
+    let uniqueness_score = if is_copypasta {
+        20.0
+    } else {
+        (100.0 - best_sim * 100.0).clamp(0.0, 100.0)
+    };
     let substantiveness_score = (60.0 + (words_count as f32 * 1.5)).clamp(50.0, 100.0);
 
-    let (attrib_score, attrib_status, attrib_desc, attrib_impact) = if best_sim > 0.65 {
+    let (attrib_score, attrib_status, attrib_desc, attrib_impact) = if is_copypasta {
+        let orig = originator.as_ref().unwrap();
+        (
+            20.0,
+            "Viral Copypasta Pattern".to_string(),
+            format!("Unattributed reuse of a viral template first popularized on X by @{}.", orig.first_poster_handle),
+            "Penalized by X duplicate suppression filter".to_string(),
+        )
+    } else if best_sim > 0.65 {
         if text.contains('"') || text.to_lowercase().contains("via ") || text.to_lowercase().contains("by ") {
             (
                 65.0,
@@ -411,7 +484,14 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
         )
     };
 
-    let (algo_score, algo_status, algo_desc, algo_multiplier) = if final_score >= state.config.original_threshold {
+    let (algo_score, algo_status, algo_desc, algo_multiplier) = if is_copypasta {
+        (
+            15.0,
+            "⚠️ Deduplication Suppression".to_string(),
+            "X algorithm groups near-duplicates into parent clusters; standalone impressions are throttled.".to_string(),
+            "-0.4x (Duplicate Penalty)".to_string(),
+        )
+    } else if final_score >= state.config.original_threshold {
         (
             95.0,
             "🚀 High Priority Exploration".to_string(),
@@ -446,15 +526,23 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
             name: "Lexical Uniqueness".to_string(),
             score: uniqueness_score,
             weight_pct: 35,
-            status: if uniqueness_score >= 80.0 {
+            status: if is_copypasta {
+                "Viral Copypasta Pattern".to_string()
+            } else if uniqueness_score >= 80.0 {
                 "High Uniqueness".to_string()
             } else if uniqueness_score >= 50.0 {
                 "Moderate Overlap".to_string()
             } else {
                 "Critical Duplication".to_string()
             },
-            description: "Verbatim phrasing overlap evaluated against the indexed web corpus.".to_string(),
-            impact: if uniqueness_score >= 80.0 {
+            description: if is_copypasta {
+                "Viral template matching existing engagement copypasta format on X.".to_string()
+            } else {
+                "Verbatim phrasing overlap evaluated against the indexed web corpus.".to_string()
+            },
+            impact: if is_copypasta {
+                "Flagged by X Duplicate Cluster Filter".to_string()
+            } else if uniqueness_score >= 80.0 {
                 "Passes duplicate clustering filter".to_string()
             } else {
                 "Flagged by duplicate detection filter".to_string()
@@ -490,7 +578,13 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
         },
     };
 
-    let reasoning = if let Some(r) = llm_reasoning {
+    let reasoning = if is_copypasta {
+        let orig = originator.as_ref().unwrap();
+        format!(
+            "Viral copypasta template detected on X. First originated by @{} on {}. X recommendation algorithm suppresses duplicate engagement bait in the 'For You' feed.",
+            orig.first_poster_handle, orig.earliest_published_at
+        )
+    } else if let Some(r) = llm_reasoning {
         r
     } else if best_sim > 0.70 {
         format!(
@@ -522,6 +616,7 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
         criteria,
         reasoning,
         algo_multiplier,
+        originator,
     })
 }
 
