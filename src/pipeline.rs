@@ -265,7 +265,7 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
     // --- Cascade Stage 2b: X Originator Resolution & Syndication Enrichment ---
     let mut raw_x_posts = extract_x_posts_from_results(&results);
     if raw_x_posts.is_empty() {
-        let site_query = format!("site:x.com \"{}\"", eval.clean_query);
+        let site_query = format!("site:x.com {}", eval.clean_query);
         tracing::info!("no X status links in general results; querying: '{}'", site_query);
         if let Ok(x_results) = state.search.search(&site_query).await {
             for xr in &x_results {
@@ -274,6 +274,25 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
                 }
             }
             raw_x_posts = extract_x_posts_from_results(&results);
+        }
+    }
+
+    // If still empty and text has multiple lines or clauses, search the first main clause
+    if raw_x_posts.is_empty() {
+        if let Some(first_clause) = text.lines().find(|l| l.trim().split_whitespace().count() >= 3) {
+            let first_clean = crate::claim_detector::extract_search_query(first_clause);
+            if !first_clean.is_empty() && first_clean != eval.clean_query {
+                let site_query_first = format!("site:x.com {}", first_clean);
+                tracing::info!("querying first clause for X status: '{}'", site_query_first);
+                if let Ok(x_results) = state.search.search(&site_query_first).await {
+                    for xr in &x_results {
+                        if !results.iter().any(|r| r.url == xr.url) {
+                            results.push(xr.clone());
+                        }
+                    }
+                    raw_x_posts = extract_x_posts_from_results(&results);
+                }
+            }
         }
     }
 
@@ -343,6 +362,9 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
                 similarity: 0.85,
             });
         }
+    } else if best.as_ref().map(|b| b.similarity).unwrap_or(0.0) < 0.20 {
+        // Drop noisy/irrelevant matches with less than 20% overlap
+        best = None;
     }
     let best_sim = best.as_ref().map(|b| b.similarity).unwrap_or(0.0);
     let lexical_score = 100.0 - (best_sim * 100.0);

@@ -1705,7 +1705,18 @@
       }
 
       // Match card & reference resolution
-      if (data.best_match && data.best_match.similarity > 0.05) {
+      if (data.originator && data.originator.first_poster_handle) {
+        currentMatchFound = true;
+        matchCard.style.display = 'flex';
+        noMatchNotice.style.display = 'none';
+        matchTitle.textContent = `Original Tweet on X by @${data.originator.first_poster_handle}`;
+        matchUrl.href = data.originator.first_tweet_url;
+        matchUrl.querySelector('span').textContent = data.originator.first_tweet_url;
+        matchSnippet.textContent = (data.best_match && data.best_match.snippet && !data.best_match.snippet.includes('Earliest verified post')) 
+          ? `"${data.best_match.snippet}"` 
+          : `"${data.originator.deduplication_verdict}"`;
+        similarityPill.textContent = 'Cluster Root Reference';
+      } else if (data.best_match && data.best_match.similarity >= 0.20) {
         currentMatchFound = true;
         matchCard.style.display = 'flex';
         noMatchNotice.style.display = 'none';
@@ -1715,18 +1726,10 @@
         matchSnippet.textContent = '"' + data.best_match.snippet + '"';
         const simPct = (data.best_match.similarity * 100).toFixed(1);
         similarityPill.textContent = simPct + '% Overlap';
-      } else if (data.originator && data.originator.first_poster_handle) {
-        currentMatchFound = true;
-        matchCard.style.display = 'flex';
-        noMatchNotice.style.display = 'none';
-        matchTitle.textContent = `Original Tweet on X by @${data.originator.first_poster_handle}`;
-        matchUrl.href = data.originator.first_tweet_url;
-        matchUrl.querySelector('span').textContent = data.originator.first_tweet_url;
-        matchSnippet.textContent = `"${data.originator.deduplication_verdict}"`;
-        similarityPill.textContent = 'Cluster Root Reference';
       } else {
         currentMatchFound = false;
         matchCard.style.display = 'none';
+        noMatchNotice.style.display = 'block';
       }
 
       methodText.textContent = data.method;

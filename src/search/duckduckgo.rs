@@ -85,14 +85,15 @@ fn percent_encoding_decode(s: &str) -> Result<String, ()> {
 #[async_trait]
 impl WebSearchProvider for DuckDuckGoProvider {
     async fn search(&self, query: &str) -> Result<Vec<SearchResult>, AppError> {
-        let url = "https://lite.duckduckgo.com/lite/";
+        let url = "https://html.duckduckgo.com/html/";
         let resp = self
             .http
             .post(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
             .header("Accept-Language", "en-US,en;q=0.9")
-            .header("Origin", "https://lite.duckduckgo.com")
-            .header("Referer", "https://lite.duckduckgo.com/")
+            .header("Origin", "https://html.duckduckgo.com")
+            .header("Referer", "https://html.duckduckgo.com/")
             .form(&[("q", query)])
             .send()
             .await
@@ -353,10 +354,13 @@ impl DuckDuckGoProvider {
     }
 
     pub fn parse_results(html: &str) -> Vec<SearchResult> {
-        let link_re = Regex::new(r#"(?s)<a[^>]+href="([^"]+)"[^>]*class=['"]result-link['"][^>]*>(.*?)</a>"#).unwrap();
-        let snippet_re = Regex::new(r#"(?s)<td[^>]*class=['"]result-snippet['"][^>]*>(.*?)</td>"#).unwrap();
+        let mut results = Vec::new();
 
-        let links: Vec<(String, String)> = link_re
+        // 1. html.duckduckgo.com format (result__a and result__snippet)
+        let html_title_re = Regex::new(r#"(?s)<a[^>]+class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>"#).unwrap();
+        let html_snip_re = Regex::new(r#"(?s)<a[^>]+class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>"#).unwrap();
+
+        let html_links: Vec<(String, String)> = html_title_re
             .captures_iter(html)
             .map(|cap| {
                 let raw_href = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
@@ -365,7 +369,7 @@ impl DuckDuckGoProvider {
             })
             .collect();
 
-        let snippets: Vec<String> = snippet_re
+        let html_snippets: Vec<String> = html_snip_re
             .captures_iter(html)
             .map(|cap| {
                 let raw_snippet = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
@@ -373,18 +377,54 @@ impl DuckDuckGoProvider {
             })
             .collect();
 
-        let mut results = Vec::new();
-        let total = links.len().min(snippets.len()).min(10);
+        if !html_links.is_empty() {
+            let total = html_links.len().min(html_snippets.len()).min(10);
+            for i in 0..total {
+                let (url, title) = &html_links[i];
+                let snippet = &html_snippets[i];
+                if !url.is_empty() && !title.is_empty() {
+                    results.push(SearchResult {
+                        url: url.clone(),
+                        title: title.clone(),
+                        snippet: snippet.clone(),
+                    });
+                }
+            }
+        }
 
-        for i in 0..total {
-            let (url, title) = &links[i];
-            let snippet = &snippets[i];
-            if !url.is_empty() && !title.is_empty() {
-                results.push(SearchResult {
-                    url: url.clone(),
-                    title: title.clone(),
-                    snippet: snippet.clone(),
-                });
+        // 2. Fallback to lite.duckduckgo.com format (result-link and result-snippet)
+        if results.is_empty() {
+            let link_re = Regex::new(r#"(?s)<a[^>]+href="([^"]+)"[^>]*class=['"]result-link['"][^>]*>(.*?)</a>"#).unwrap();
+            let snippet_re = Regex::new(r#"(?s)<td[^>]*class=['"]result-snippet['"][^>]*>(.*?)</td>"#).unwrap();
+
+            let links: Vec<(String, String)> = link_re
+                .captures_iter(html)
+                .map(|cap| {
+                    let raw_href = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
+                    let raw_title = cap.get(2).map(|m| m.as_str()).unwrap_or_default();
+                    (Self::extract_url(raw_href), Self::clean_html(raw_title))
+                })
+                .collect();
+
+            let snippets: Vec<String> = snippet_re
+                .captures_iter(html)
+                .map(|cap| {
+                    let raw_snippet = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
+                    Self::clean_html(raw_snippet)
+                })
+                .collect();
+
+            let total = links.len().min(snippets.len()).min(10);
+            for i in 0..total {
+                let (url, title) = &links[i];
+                let snippet = &snippets[i];
+                if !url.is_empty() && !title.is_empty() {
+                    results.push(SearchResult {
+                        url: url.clone(),
+                        title: title.clone(),
+                        snippet: snippet.clone(),
+                    });
+                }
             }
         }
 
