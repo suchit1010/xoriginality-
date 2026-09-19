@@ -310,7 +310,18 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
     matches.sort_by(|a, b| b.similarity.partial_cmp(&a.similarity).unwrap_or(std::cmp::Ordering::Equal));
     let t3_ms = t3_start.elapsed().as_millis() as u64;
 
-    let best = matches.first().cloned();
+    let mut best = matches.first().cloned();
+    if let Some(orig) = &originator {
+        // If no web match or existing match has low similarity, ensure the canonical originator is the primary reference
+        if best.as_ref().map(|b| b.similarity).unwrap_or(0.0) < 0.60 {
+            best = Some(MatchedSource {
+                url: orig.first_tweet_url.clone(),
+                title: format!("Original Tweet on X by @{}", orig.first_poster_handle),
+                snippet: format!("Earliest verified post on X by @{} ({}). {}", orig.first_poster_handle, orig.earliest_published_at, orig.deduplication_verdict),
+                similarity: 0.85,
+            });
+        }
+    }
     let best_sim = best.as_ref().map(|b| b.similarity).unwrap_or(0.0);
     let lexical_score = 100.0 - (best_sim * 100.0);
 

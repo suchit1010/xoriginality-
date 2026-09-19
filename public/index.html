@@ -1405,6 +1405,15 @@
             </div>
           </div>
 
+          <!-- Clean Zero-Match Notice (Shown when 100% original and no web duplicates exist) -->
+          <div id="noMatchNotice" class="empty-state" style="display: none; padding: 2.5rem 1.5rem; border-radius: 14px; background: rgba(0, 186, 124, 0.05); border: 1px dashed rgba(0, 186, 124, 0.3);">
+            <div class="empty-icon" style="font-size: 2.25rem;">🛡️</div>
+            <p><strong style="color: var(--success); font-size: 1.15rem;">100% Original Content</strong></p>
+            <p style="font-size: 0.9rem; margin-top: 0.35rem; color: var(--text-muted);">
+              No duplicate web sources or plagiarized references detected across indexed web pages and X posts.
+            </p>
+          </div>
+
           <!-- Method and Latency Pill -->
           <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.25rem;">
             <div id="methodPill" class="method-pill">
@@ -1463,6 +1472,7 @@
     const thinkingTimeline = document.getElementById('thinkingTimeline');
 
     const matchCard = document.getElementById('matchCard');
+    const noMatchNotice = document.getElementById('noMatchNotice');
     const matchTitle = document.getElementById('matchTitle');
     const matchUrl = document.getElementById('matchUrl');
     const matchSnippet = document.getElementById('matchSnippet');
@@ -1518,6 +1528,8 @@
         btn.classList.add('active');
 
         const tab = btn.dataset.tab;
+        noMatchNotice.style.display = 'none';
+
         if (tab === 'all') {
           scoreBanner.style.display = 'flex';
           reasoningCard.style.display = 'flex';
@@ -1525,6 +1537,7 @@
           criteriaSection.style.display = 'block';
           thinkingSection.style.display = 'block';
           if (currentMatchFound) matchCard.style.display = 'flex';
+          else matchCard.style.display = 'none';
         } else if (tab === 'originator') {
           scoreBanner.style.display = 'flex';
           reasoningCard.style.display = 'none';
@@ -1552,7 +1565,13 @@
           originatorCard.style.display = 'none';
           criteriaSection.style.display = 'none';
           thinkingSection.style.display = 'none';
-          matchCard.style.display = 'flex';
+          if (currentMatchFound) {
+            matchCard.style.display = 'flex';
+            noMatchNotice.style.display = 'none';
+          } else {
+            matchCard.style.display = 'none';
+            noMatchNotice.style.display = 'block';
+          }
         }
       });
     });
@@ -1685,16 +1704,26 @@
         renderThinking(data.thinking_steps);
       }
 
-      // Match card
+      // Match card & reference resolution
       if (data.best_match && data.best_match.similarity > 0.05) {
         currentMatchFound = true;
         matchCard.style.display = 'flex';
+        noMatchNotice.style.display = 'none';
         matchTitle.textContent = data.best_match.title || 'Web Document Match';
         matchUrl.href = data.best_match.url;
         matchUrl.querySelector('span').textContent = data.best_match.url;
         matchSnippet.textContent = '"' + data.best_match.snippet + '"';
         const simPct = (data.best_match.similarity * 100).toFixed(1);
         similarityPill.textContent = simPct + '% Overlap';
+      } else if (data.originator && data.originator.first_poster_handle) {
+        currentMatchFound = true;
+        matchCard.style.display = 'flex';
+        noMatchNotice.style.display = 'none';
+        matchTitle.textContent = `Original Tweet on X by @${data.originator.first_poster_handle}`;
+        matchUrl.href = data.originator.first_tweet_url;
+        matchUrl.querySelector('span').textContent = data.originator.first_tweet_url;
+        matchSnippet.textContent = `"${data.originator.deduplication_verdict}"`;
+        similarityPill.textContent = 'Cluster Root Reference';
       } else {
         currentMatchFound = false;
         matchCard.style.display = 'none';

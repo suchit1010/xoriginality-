@@ -14,7 +14,7 @@ impl DuckDuckGoProvider {
     pub fn new() -> Self {
         Self {
             http: reqwest::Client::builder()
-                .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15")
                 .build()
                 .unwrap_or_else(|_| reqwest::Client::new()),
         }
@@ -90,6 +90,9 @@ impl WebSearchProvider for DuckDuckGoProvider {
             .http
             .post(url)
             .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Origin", "https://lite.duckduckgo.com")
+            .header("Referer", "https://lite.duckduckgo.com/")
             .form(&[("q", query)])
             .send()
             .await
@@ -101,7 +104,7 @@ impl WebSearchProvider for DuckDuckGoProvider {
             .await
             .map_err(|e| AppError::Http(format!("failed to read duckduckgo response: {e}")))?;
 
-        let results = Self::parse_results(&body);
+        let mut results = Self::parse_results(&body);
         tracing::info!(
             "duckduckgo status {} for query '{}': body {} bytes, parsed {} results",
             status,
@@ -109,6 +112,31 @@ impl WebSearchProvider for DuckDuckGoProvider {
             body.len(),
             results.len()
         );
+
+        // If lite endpoint triggered an anomaly challenge (status 202 or 0 results), fallback to alternative user agent
+        if results.is_empty() && (status.as_u16() == 202 || body.contains("anomaly")) {
+            tracing::warn!("duckduckgo anomaly detected for query '{}', retrying with fallback headers", query);
+            if let Ok(retry_resp) = self
+                .http
+                .post(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "en-US,en;q=0.5")
+                .header("Origin", "https://lite.duckduckgo.com")
+                .header("Referer", "https://lite.duckduckgo.com/")
+                .form(&[("q", query)])
+                .send()
+                .await
+            {
+                if let Ok(retry_body) = retry_resp.text().await {
+                    let fallback_results = Self::parse_results(&retry_body);
+                    if !fallback_results.is_empty() {
+                        tracing::info!("duckduckgo fallback succeeded: parsed {} results", fallback_results.len());
+                        results = fallback_results;
+                    }
+                }
+            }
+        }
 
         Ok(results)
     }
