@@ -258,34 +258,66 @@ impl DuckDuckGoProvider {
 
     pub fn parse_bing_html(html: &str) -> Vec<SearchResult> {
         let mut results = Vec::new();
+        let algo_re = Regex::new(r#"(?s)<li class="b_algo"[^>]*>(.*?)</li>"#).unwrap();
         let h2_re = Regex::new(r#"(?s)<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>"#).unwrap();
+        let caption_re = Regex::new(r#"(?s)<div class="b_caption"><p[^>]*>(.*?)</p>"#).unwrap();
 
-        for cap in h2_re.captures_iter(html) {
-            let raw_url = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
-            let title = cap.get(2).map(|m| Self::clean_html(m.as_str())).unwrap_or_default();
+        for block_cap in algo_re.captures_iter(html) {
+            let block = block_cap.get(1).map(|m| m.as_str()).unwrap_or_default();
 
-            let target_url = if raw_url.contains("/ck/a?!") {
-                Self::decode_bing_redirect(raw_url).unwrap_or_else(|| raw_url.to_string())
-            } else {
-                raw_url.to_string()
-            };
+            if let Some(h2_cap) = h2_re.captures(block) {
+                let raw_url = h2_cap.get(1).map(|m| m.as_str()).unwrap_or_default();
+                let title = h2_cap.get(2).map(|m| Self::clean_html(m.as_str())).unwrap_or_default();
 
-            if !target_url.is_empty() && !target_url.starts_with('/') {
-                results.push(SearchResult {
-                    url: target_url,
-                    title,
-                    snippet: String::new(),
-                });
+                let target_url = if raw_url.contains("/ck/a?!") || raw_url.contains("u=a1") {
+                    Self::decode_bing_redirect(raw_url).unwrap_or_else(|| raw_url.to_string())
+                } else {
+                    raw_url.to_string()
+                };
+
+                let snippet = caption_re
+                    .captures(block)
+                    .and_then(|c| c.get(1))
+                    .map(|m| Self::clean_html(m.as_str()))
+                    .unwrap_or_default();
+
+                if !target_url.is_empty() && !target_url.starts_with('/') {
+                    results.push(SearchResult {
+                        url: target_url,
+                        title,
+                        snippet,
+                    });
+                }
+            }
+        }
+
+        // Fallback: if no <li class="b_algo"> blocks matched, match direct <h2> links
+        if results.is_empty() {
+            for cap in h2_re.captures_iter(html) {
+                let raw_url = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
+                let title = cap.get(2).map(|m| Self::clean_html(m.as_str())).unwrap_or_default();
+                let target_url = if raw_url.contains("/ck/a?!") || raw_url.contains("u=a1") {
+                    Self::decode_bing_redirect(raw_url).unwrap_or_else(|| raw_url.to_string())
+                } else {
+                    raw_url.to_string()
+                };
+                if !target_url.is_empty() && !target_url.starts_with('/') {
+                    results.push(SearchResult {
+                        url: target_url,
+                        title,
+                        snippet: String::new(),
+                    });
+                }
             }
         }
 
         results
     }
 
-    /// Decodes Bing's Base64 redirect parameter: ...&u=a1<BASE64>&...
+    /// Decodes Bing's Base64 redirect parameter: ...&u=a1<BASE64>&... or &amp;u=a1<BASE64>
     pub fn decode_bing_redirect(url: &str) -> Option<String> {
-        let u_idx = url.find("&u=a1")?;
-        let rest = &url[u_idx + 5..];
+        let u_idx = url.find("u=a1")?;
+        let rest = &url[u_idx + 4..];
         let end_idx = rest.find('&').unwrap_or(rest.len());
         let b64 = &rest[..end_idx];
         Self::decode_base64(b64)
@@ -433,6 +465,21 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].url, "https://x.com/SkusSkus/status/1992683734479655385");
         assert!(results[0].title.contains("SkusSkus"));
+    }
+
+    #[test]
+    fn test_parse_bing_html() {
+        let sample_html = r#"
+            <li class="b_algo">
+                <h2><a href="https://www.bing.com/ck/a?!&amp;&amp;p=123&amp;u=a1aHR0cHM6Ly9tb3ouY29tL2xlYXJuL3Nlby93aGF0LWlzLXNlbw&amp;ntb=1">What Is SEO? Best Practices - Moz</a></h2>
+                <div class="b_caption"><p>SEO stands for search engine optimization and improving your site.</p></div>
+            </li>
+        "#;
+        let results = DuckDuckGoProvider::parse_bing_html(sample_html);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].url, "https://moz.com/learn/seo/what-is-seo");
+        assert_eq!(results[0].title, "What Is SEO? Best Practices - Moz");
+        assert_eq!(results[0].snippet, "SEO stands for search engine optimization and improving your site.");
     }
 
     #[tokio::test]

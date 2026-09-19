@@ -12,7 +12,8 @@ pub struct ClaimEvaluation {
 /// an expensive web search, or if it is obvious conversational chatter, greetings,
 /// or personal status updates that are trivially original.
 pub fn evaluate_tweet(text: &str) -> ClaimEvaluation {
-    let trimmed = text.trim();
+    let normalized = normalize_unicode(text);
+    let trimmed = normalized.trim();
 
     // 1. Empty or extremely short
     if trimmed.is_empty() {
@@ -29,8 +30,8 @@ pub fn evaluate_tweet(text: &str) -> ClaimEvaluation {
         .filter(|w| !w.starts_with('@') && !w.starts_with("http://") && !w.starts_with("https://"))
         .collect();
 
-    // Less than 6 words after stripping mentions/urls — too short for reliable DDG search
-    if words.len() < 6 {
+    // Require at least 4 words for meaningful search
+    if words.len() < 4 {
         return ClaimEvaluation {
             should_search: false,
             reason: "too_short_for_claim",
@@ -77,8 +78,8 @@ pub fn evaluate_tweet(text: &str) -> ClaimEvaluation {
     // 4. Extract optimized search query
     let clean_query = extract_search_query(trimmed);
 
-    // If query resulted in fewer than 3 usable words
-    if clean_query.split_whitespace().count() < 3 {
+    // If query resulted in fewer than 2 usable words
+    if clean_query.split_whitespace().count() < 2 {
         return ClaimEvaluation {
             should_search: false,
             reason: "insufficient_search_tokens",
@@ -93,43 +94,67 @@ pub fn evaluate_tweet(text: &str) -> ClaimEvaluation {
     }
 }
 
+pub fn normalize_unicode(s: &str) -> String {
+    s.replace(['’', '‘', '`'], "'")
+     .replace(['“', '”'], "\"")
+     .replace(['—', '–'], "-")
+}
+
 /// Formulates a high-signal search query from tweet text:
 /// - Extracts exact quotes if present ("...")
 /// - Removes hashtags, handles, URLs, and noisy punctuation
+/// - Filters low-signal stop words when sentence is long
 /// - Selects the top 10-16 informative words for search engines
 pub fn extract_search_query(text: &str) -> String {
+    let normalized = normalize_unicode(text);
+
     // If text contains an explicit quote ("..."), that is often the central claim or borrowed snippet
     let quote_re = Regex::new(r#""([^"]{15,120})""#).ok();
     if let Some(re) = quote_re {
-        if let Some(caps) = re.captures(text) {
+        if let Some(caps) = re.captures(&normalized) {
             if let Some(quoted) = caps.get(1) {
                 return format!("\"{}\"", quoted.as_str().trim());
             }
         }
     }
 
-    // Otherwise clean words
-    let mut selected_words = Vec::new();
-    for word in text.split_whitespace() {
+    let stop_words: std::collections::HashSet<&'static str> = [
+        "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+        "in", "on", "at", "to", "for", "of", "with", "by", "from", "up",
+        "about", "into", "over", "after", "it", "its", "this", "that", "these",
+        "those", "and", "or", "but", "so", "if", "than", "then", "too", "very"
+    ].iter().cloned().collect();
+
+    // Clean words
+    let mut all_words = Vec::new();
+    let mut keyword_words = Vec::new();
+
+    for word in normalized.split_whitespace() {
         if word.starts_with('@') || word.starts_with("http://") || word.starts_with("https://") {
             continue;
         }
 
-        // Clean surrounding punctuation while preserving hyphens/apostrophes
         let cleaned = word.trim_matches(|c: char| {
             !c.is_alphanumeric() && c != '\'' && c != '-'
         });
 
         if !cleaned.is_empty() {
-            selected_words.push(cleaned);
-        }
-
-        if selected_words.len() >= 16 {
-            break;
+            all_words.push(cleaned.to_string());
+            let lower_word = cleaned.to_lowercase();
+            if !stop_words.contains(lower_word.as_str()) {
+                keyword_words.push(cleaned.to_string());
+            }
         }
     }
 
-    selected_words.join(" ")
+    // If removing stop words left us with at least 3 strong keywords, use them
+    let chosen_words = if keyword_words.len() >= 3 {
+        keyword_words
+    } else {
+        all_words
+    };
+
+    chosen_words.into_iter().take(16).collect::<Vec<_>>().join(" ")
 }
 
 /// Formulates a search query optimized specifically for finding the original X/Twitter post.
