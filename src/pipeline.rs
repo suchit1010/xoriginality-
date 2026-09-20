@@ -262,35 +262,108 @@ pub async fn evaluate_text(state: &AppState, text: &str) -> Result<DraftEvaluati
 
     tracing::info!("draft search query: '{}' returned {} total results", eval.clean_query, results.len());
 
-    // --- Cascade Stage 2b: X Originator Resolution & Syndication Enrichment ---
-    let mut raw_x_posts = extract_x_posts_from_results(&results);
-    if raw_x_posts.is_empty() {
-        let site_query = format!("site:x.com {}", eval.clean_query);
-        tracing::info!("no X status links in general results; querying: '{}'", site_query);
-        if let Ok(x_results) = state.search.search(&site_query).await {
-            for xr in &x_results {
-                if !results.iter().any(|r| r.url == xr.url) {
-                    results.push(xr.clone());
+    // --- Cascade Stage 2b: X Originator Resolution ---
+    // Priority order:
+    //   1. X API v2 search/recent (when X_BEARER_TOKEN is set) — queries X's
+    //      internal index which contains EVERY public tweet, including
+    //      low-impression originals that web crawlers never visited.
+    //   2. Web search URL extraction — fallback when no token is present.
+    let mut raw_x_posts: Vec<crate::models::XPostMatch> = Vec::new();
+
+    if let Some(bearer) = state.config.x_bearer_token.as_deref() {
+        // Build a compact, high-signal query for X's full-text search.
+        // X search is more literal than web engines — shorter is better.
+        let x_query = if eval.clean_query.split_whitespace().count() > 8 {
+            // Take the first 8 high-signal tokens to avoid over-constraining
+            eval.clean_query
+                .split_whitespace()
+                .take(8)
+                .collect::<Vec<_>>()
+                .join(" ")
+        } else {
+            eval.clean_query.clone()
+        };
+
+        tracing::info!("X API search/recent query: '{}'", x_query);
+        let x_client = crate::x_client::XClient::new(bearer.to_string());
+        match x_client.search_recent_tweets(&x_query, 50).await {
+            Ok(x_results) if !x_results.is_empty() => {
+                tracing::info!(
+                    "X API returned {} candidates; earliest will be the original poster",
+                    x_results.len()
+                );
+                // Convert XSearchResult → XPostMatch and merge into raw_x_posts
+                // Sort ascending by tweet_id so the earliest (original) is first
+                let mut api_posts: Vec<crate::models::XPostMatch> = x_results
+                    .into_iter()
+                    .map(|r| crate::models::XPostMatch {
+                        author_handle: r.handle.clone(),
+                        tweet_id: r.tweet_id,
+                        tweet_url: r.tweet_url.clone(),
+                        published_at: r.created_at,
+                        formatted_date: r.created_at.format("%b %d, %Y at %H:%M UTC").to_string(),
+                        snippet: format!(
+                            "{} views · {}",
+                            r.impression_count,
+                            &r.text.chars().take(80).collect::<String>()
+                        ),
+                    })
+                    .collect();
+                api_posts.sort_by_key(|p| p.tweet_id);
+                // Also inject the X status URLs into the web results pool so
+                // similarity scoring includes the tweet texts
+                for p in &api_posts {
+                    if !results.iter().any(|r| r.url == p.tweet_url) {
+                        results.push(crate::search::SearchResult {
+                            url: p.tweet_url.clone(),
+                            title: format!("Post by @{} on X", p.author_handle),
+                            snippet: p.snippet.clone(),
+                        });
+                    }
                 }
+                raw_x_posts = api_posts;
             }
-            raw_x_posts = extract_x_posts_from_results(&results);
+            Ok(_) => {
+                tracing::info!("X API returned 0 results for '{}'; falling back to web search extraction", x_query);
+            }
+            Err(e) => {
+                tracing::warn!("X API search/recent failed ({}); falling back to web search extraction", e);
+            }
         }
     }
 
-    // If still empty and text has multiple lines or clauses, search the first main clause
+    // Fallback: extract X post URLs from web search results if X API was
+    // unavailable or returned nothing
     if raw_x_posts.is_empty() {
-        if let Some(first_clause) = text.lines().find(|l| l.trim().split_whitespace().count() >= 3) {
-            let first_clean = crate::claim_detector::extract_search_query(first_clause);
-            if !first_clean.is_empty() && first_clean != eval.clean_query {
-                let site_query_first = format!("site:x.com {}", first_clean);
-                tracing::info!("querying first clause for X status: '{}'", site_query_first);
-                if let Ok(x_results) = state.search.search(&site_query_first).await {
-                    for xr in &x_results {
-                        if !results.iter().any(|r| r.url == xr.url) {
-                            results.push(xr.clone());
-                        }
+        raw_x_posts = extract_x_posts_from_results(&results);
+        if raw_x_posts.is_empty() {
+            let site_query = format!("site:x.com {}", eval.clean_query);
+            tracing::info!("no X status links in general results; querying: '{}'", site_query);
+            if let Ok(x_results) = state.search.search(&site_query).await {
+                for xr in &x_results {
+                    if !results.iter().any(|r| r.url == xr.url) {
+                        results.push(xr.clone());
                     }
-                    raw_x_posts = extract_x_posts_from_results(&results);
+                }
+                raw_x_posts = extract_x_posts_from_results(&results);
+            }
+        }
+
+        // If still empty and text has multiple lines or clauses, search the first main clause
+        if raw_x_posts.is_empty() {
+            if let Some(first_clause) = text.lines().find(|l| l.trim().split_whitespace().count() >= 3) {
+                let first_clean = crate::claim_detector::extract_search_query(first_clause);
+                if !first_clean.is_empty() && first_clean != eval.clean_query {
+                    let site_query_first = format!("site:x.com {}", first_clean);
+                    tracing::info!("querying first clause for X status: '{}'", site_query_first);
+                    if let Ok(x_results) = state.search.search(&site_query_first).await {
+                        for xr in &x_results {
+                            if !results.iter().any(|r| r.url == xr.url) {
+                                results.push(xr.clone());
+                            }
+                        }
+                        raw_x_posts = extract_x_posts_from_results(&results);
+                    }
                 }
             }
         }
