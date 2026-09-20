@@ -62,15 +62,36 @@ pub fn combined_similarity(a: &str, b: &str) -> f32 {
 
 /// Decodes a 64-bit Twitter Snowflake ID into its exact creation timestamp (UTC).
 /// Twitter Snowflake epoch begins at 1288834974657 ms (Nov 04, 2010 01:42:54 UTC).
+///
+/// Returns `None` if the ID doesn't parse, or if it decodes to a date outside
+/// the sane range [Snowflake rollout, now] — a real tweet can't be dated
+/// before Twitter switched to Snowflake IDs, and can't be dated in the
+/// future. Landing outside that range means we matched something that
+/// *looked* like a status URL but wasn't (a mistyped example ID in a blog
+/// post, a non-tweet numeric path, etc.) — better to drop it than report a
+/// confidently wrong originator date.
 pub fn parse_twitter_snowflake_id(id_str: &str) -> Option<(u64, chrono::DateTime<chrono::Utc>)> {
+    const SNOWFLAKE_EPOCH_MS: u64 = 1288834974657;
     let id: u64 = id_str.parse().ok()?;
-    // Twitter epoch: 1288834974657 ms
-    let ms = (id >> 22) + 1288834974657;
+    let ms = (id >> 22) + SNOWFLAKE_EPOCH_MS;
     let secs = (ms / 1000) as i64;
     let nsecs = ((ms % 1000) * 1_000_000) as u32;
     let dt = chrono::DateTime::from_timestamp(secs, nsecs)?;
+
+    // Allow a small buffer for clock skew rather than a hard `> now` cutoff.
+    let not_after = chrono::Utc::now() + chrono::Duration::minutes(5);
+    if dt < chrono::DateTime::from_timestamp((SNOWFLAKE_EPOCH_MS / 1000) as i64, 0)? || dt > not_after {
+        return None;
+    }
+
     Some((id, dt))
 }
+
+/// Handle-shaped URL segments that are never a real account: X's own
+/// placeholder path for anonymized/logged-out share links
+/// (`x.com/i/status/12345`) is by far the most common one search engines
+/// index. Without this guard, that "i" gets reported as the author.
+const NON_ACCOUNT_PATH_SEGMENTS: [&str; 1] = ["i"];
 
 /// Inspects search results to extract all unique X (Twitter) status URLs and resolves
 /// their author handle, snowflake ID, and chronological creation timestamp.
@@ -80,18 +101,25 @@ pub fn extract_x_posts_from_results(results: &[crate::search::SearchResult]) -> 
 
     let mut posts = Vec::new();
     let re = Regex::new(r"(?:twitter\.com|x\.com)/([a-zA-Z0-9_]{1,30})/status/(\d{15,22})").unwrap();
-    let mut seen_handles = HashSet::new();
+    // Keyed on the lowercased handle: X handles are case-insensitive, so
+    // "@WatcherGuru" and "@watcherguru" turning up in two different search
+    // snippets must dedupe to one account, not inflate the copycat count.
+    let mut seen_handles_lower: HashSet<String> = HashSet::new();
 
     for r in results {
         let text_to_check = format!("{} {}", r.url, r.snippet);
         for cap in re.captures_iter(&text_to_check) {
             let handle = cap[1].to_string();
             let id_str = &cap[2];
+            let handle_lower = handle.to_lowercase();
 
-            if seen_handles.contains(&handle) {
+            if NON_ACCOUNT_PATH_SEGMENTS.contains(&handle_lower.as_str()) {
                 continue;
             }
-            seen_handles.insert(handle.clone());
+            if seen_handles_lower.contains(&handle_lower) {
+                continue;
+            }
+            seen_handles_lower.insert(handle_lower);
 
             if let Some((id, dt)) = parse_twitter_snowflake_id(id_str) {
                 posts.push(XPostMatch {
@@ -155,5 +183,70 @@ mod tests {
         let (id, dt) = parse_twitter_snowflake_id("2040840042734588042").expect("valid snowflake");
         assert_eq!(id, 2040840042734588042);
         assert_eq!(dt.format("%Y-%m-%d").to_string(), "2026-04-05");
+    }
+
+    #[test]
+    fn snowflake_rejects_future_dated_garbage() {
+        // A 19-digit number that happens to parse as u64 but decodes to a
+        // date far beyond "now" - e.g. a mistyped example ID in a blog post
+        // that isn't a real tweet at all. Must not be reported as a match.
+        assert!(parse_twitter_snowflake_id("9223372036854775807").is_none());
+    }
+
+    #[test]
+    fn snowflake_accepts_real_recent_id() {
+        // Sanity check that the new bounds check doesn't reject genuinely
+        // valid, recently-issued IDs.
+        assert!(parse_twitter_snowflake_id("2040840042734588042").is_some());
+    }
+
+    fn stub_result(url: &str, snippet: &str) -> crate::search::SearchResult {
+        crate::search::SearchResult {
+            url: url.to_string(),
+            title: String::new(),
+            snippet: snippet.to_string(),
+        }
+    }
+
+    #[test]
+    fn ignores_anonymized_i_status_placeholder() {
+        // x.com/i/status/... is X's own placeholder for logged-out/share
+        // links - it is never a real handle and must not be reported as
+        // "posted by @i".
+        let results = vec![stub_result(
+            "https://x.com/i/status/1699999999999999999",
+            "What's the lore behind your header?",
+        )];
+        let posts = extract_x_posts_from_results(&results);
+        assert!(posts.is_empty(), "expected no posts, got {posts:?}");
+    }
+
+    #[test]
+    fn dedupes_handles_case_insensitively() {
+        // The same account, referenced with different capitalization across
+        // two different search snippets, must count as ONE account - not
+        // inflate the "N distinct accounts" copycat signal.
+        let results = vec![
+            stub_result(
+                "https://x.com/WatcherGuru/status/2040840042734588042",
+                "Warren Buffett stepped down.",
+            ),
+            stub_result(
+                "https://x.com/watcherguru/status/2040840042734588042",
+                "Warren Buffett stepped down. (duplicate index entry)",
+            ),
+        ];
+        let posts = extract_x_posts_from_results(&results);
+        assert_eq!(posts.len(), 1, "expected one deduped account, got {posts:?}");
+    }
+
+    #[test]
+    fn keeps_distinct_real_handles() {
+        let results = vec![
+            stub_result("https://x.com/alice/status/2040840042734588042", "text"),
+            stub_result("https://x.com/bob/status/2040840042734588142", "text"),
+        ];
+        let posts = extract_x_posts_from_results(&results);
+        assert_eq!(posts.len(), 2);
     }
 }
